@@ -3,12 +3,35 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 import plotly.express as px
 
-# Configuração visual e do navegador
-st.set_page_config(page_title="MFIT Control", layout="wide", page_icon="💪")
+# 1. CONFIGURAÇÃO VISUAL PREMIUM
+st.set_page_config(page_title="Financeiro Team Muniz", layout="wide", page_icon="💰")
 
-# Conexão direta com a sua planilha
-url = "https://docs.google.com/spreadsheets/d/1BkD7YetGCHdpCupoYDfJE_dOOM0o86s3nepNl75BJNI/edit?usp=sharing"
+# CSS para forçar o tema Preto e Dourado
+st.markdown("""
+    <style>
+    .main { background-color: #000000; }
+    div[data-testid="stMetricValue"] { color: #D4AF37 !important; } /* Cor Dourada */
+    div[data-testid="stMetricLabel"] { color: #FFFFFF !important; }
+    .stButton>button { 
+        background-color: #D4AF37; 
+        color: black; 
+        border-radius: 10px;
+        border: none;
+        width: 100%;
+        font-weight: bold;
+    }
+    .stExpander { border: 1px solid #D4AF37 !important; background-color: #111111 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. CONEXÃO
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 3. PAINEL FIXO E SELEÇÃO DE MÊS
+st.sidebar.title("🏆 Financeiro Team Muniz")
+mes_selecionado = st.sidebar.selectbox("Selecione o Mês", ["maio", "junho", "julho"])
+st.sidebar.markdown("---")
+st.sidebar.write("Foco na estratégia, o esforço vira resultado.")
 
 def limpar_valor(valor):
     try:
@@ -16,59 +39,59 @@ def limpar_valor(valor):
             v = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
             return float(v)
         return float(valor)
-    except:
-        return 0.0
+    except: return 0.0
 
 try:
-    # Lendo a aba de Maio da sua planilha
-    df = conn.read(ttl=0)
+    # Lendo a aba selecionada no botão lateral
+    df = conn.read(worksheet=mes_selecionado, ttl=0)
+    df.columns = df.columns.astype(str).str.strip().str.lower()
+
+    # Tratamento de Dados
+    df = df[df['aluno'].notna()]
+    if 'valor mensal' in df.columns:
+        df['valor mensal'] = df['valor mensal'].apply(limpar_valor)
+
+    st.title(f"📊 Painel Geral: {mes_selecionado.capitalize()}")
+
+    # --- CAMADA 1: RESUMO FIXO ---
+    total = df['valor mensal'].sum() if 'valor mensal' in df.columns else 0
+    pago_df = df[df['status'].str.contains('pago', na=False, case=False)] if 'status' in df.columns else pd.DataFrame()
+    pendente_df = df[~df['status'].str.contains('pago', na=False, case=False)] if 'status' in df.columns else df
     
-    # Tratamento de dados: remove espaços extras e limpa linhas vazias
-    df.columns = df.columns.str.strip()
-    df = df[df['Aluno'].notna()]
-    df = df[~df['Aluno'].astype(str).str.contains('vaga', case=False)]
-    df['Valor mensal'] = df['Valor mensal'].apply(limpar_valor)
+    pago_total = pago_df['valor mensal'].sum() if not pago_df.empty else 0
+    pendente_total = total - pago_total
 
-    st.title("🚀 MFIT • Painel de Controle")
-    st.markdown(f"### Gestão Mensal: Maio 2026")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Faturamento Total", f"R$ {total:,.2f}")
+    c2.metric("Total Recebido", f"R$ {pago_total:,.2f}")
+    c3.metric("Total Pendente", f"R$ {pendente_total:,.2f}")
 
-    # --- MÉTRICAS DE RESUMO ---
-    receita_total = df['Valor mensal'].sum()
-    receita_paga = df[df['status'].astype(str).str.contains('pago', case=False, na=False)]['Valor mensal'].sum()
-    pendente = receita_total - receita_paga
+    st.markdown("---")
 
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Faturamento Previsto", f"R$ {receita_total:,.2f}")
-    m2.metric("Recebido", f"R$ {receita_paga:,.2f}")
-    m3.metric("Pendente", f"R$ {pendente:,.2f}", delta_color="inverse")
+    # --- CAMADA 2: BOTÕES RETRÁTEIS (Expander) ---
 
-    st.divider()
+    with st.expander("📈 VER GRÁFICO DE ENTRADAS (FLUXO DE CAIXA)"):
+        if 'dia' in df.columns:
+            fig = px.bar(df.groupby('dia')['valor mensal'].sum().reset_index(), 
+                         x='dia', y='valor mensal', 
+                         color_discrete_sequence=['#D4AF37'], # Dourado
+                         template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
 
-    # --- GRÁFICO DE ENTRADAS ---
-    if 'Dia' in df.columns:
-        st.subheader("📅 Previsão de Entradas (Por Dia)")
-        fluxo = df.groupby('Dia')['Valor mensal'].sum().reset_index()
-        fig = px.bar(fluxo, x='Dia', y='Valor mensal', 
-                     text_auto='.2f', 
-                     labels={'Dia': 'Dia do Vencimento', 'Valor mensal': 'Total R$'},
-                     color_discrete_sequence=['#00CC96'])
-        st.plotly_chart(fig, use_container_width=True)
+    col_pag, col_pend = st.columns(2)
 
-    # --- LISTA DE ALUNOS E COBRANÇA ---
-    st.subheader("📲 Gestão de Pagamentos")
-    for _, row in df.iterrows():
-        status_texto = str(row['status']).lower()
-        cor_status = "✅" if 'pago' in status_texto else "🔴"
-        
-        with st.expander(f"{cor_status} {row['Aluno']} - R$ {row['Valor mensal']:.2f} (Dia {int(row['Dia'])})"):
-            if 'pago' in status_texto:
-                st.success(f"Pagamento de {row['Aluno']} confirmado.")
-            else:
-                st.warning(f"Aguardando pagamento do pacote: {row['Pacote']}")
-                # Mensagem de cobrança automática
-                msg = f"Olá {row['Aluno']}! Tudo bem? Notei que o pagamento do plano {row['Pacote']} (Vencimento Dia {int(row['Dia'])}) ainda não consta aqui. Qualquer dúvida estou à disposição!"
-                link_whatsapp = f"https://wa.me/?text={msg.replace(' ', '%20')}"
-                st.markdown(f"**[📩 Enviar Lembrete no WhatsApp]({link_whatsapp})**")
+    with col_pag:
+        if st.checkbox("✅ VER PAGOS"):
+            st.subheader("Lista de Alunos Adimplentes")
+            for _, row in pago_df.iterrows():
+                st.success(f"🟢 {row['aluno']} - R$ {row['valor mensal']:.2f}")
+
+    with col_pend:
+        if st.checkbox("❌ VER PENDENTES"):
+            st.subheader("Lista de Cobrança")
+            for _, row in pendente_df.iterrows():
+                st.error(f"🔴 {row['aluno']} - R$ {row['valor mensal']:.2f} (Dia {row['dia']})")
 
 except Exception as e:
-    st.error(f"Erro ao carregar dados. Verifique os nomes das colunas na planilha. Erro: {e}")
+    st.error(f"Erro ao carregar o mês {mes_selecionado}: {e}")
+    st.info("Verifique se a aba com esse nome existe na sua planilha.")
