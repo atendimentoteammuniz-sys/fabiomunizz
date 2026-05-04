@@ -2,81 +2,84 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# CONFIGURAÇÃO DE PÁGINA
+# 1. SETUP
 st.set_page_config(page_title="Financeiro Team Muniz", layout="wide", page_icon="🏆")
 
-# ESTILO PREMIUM
+# 2. ESTILO
 st.markdown("""
     <style>
     .main { background-color: #000000; }
-    div[data-testid="stMetricValue"] { color: #D4AF37 !important; font-weight: bold; }
+    div[data-testid="stMetricValue"] { color: #D4AF37 !important; }
     div[data-testid="stMetricLabel"] { color: #FFFFFF !important; }
-    .stSidebar { background-color: #050505 !important; border-right: 1px solid #D4AF37; }
-    .stExpander { border: 1px solid #D4AF37 !important; background-color: #0A0A0A !important; }
     h1, h2, h3 { color: #D4AF37 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-def limpar_valor(valor):
-    try:
-        if isinstance(valor, str):
-            v = valor.replace('R$', '').replace('.', '').replace(',', '.').strip()
-            return float(v)
-        return float(valor)
-    except: return 0.0
-
+# 3. CONEXÃO (Com tratamento de erro manual)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # LENDO O INTERVALO NOMEADO (MUITO MAIS ESTÁVEL)
-    # Se você ainda não nomeou, ele tentará ler a aba 'fluxo' filtrando as colunas
-    df = conn.read(worksheet="fluxo", ttl=0)
-    
-    # Seleciona apenas as 7 colunas de dados para ignorar o resto da planilha
-    df = df.iloc[:, :7]
-    df.columns = ['aluno', 'valor', 'dia', 'status', 'pacote', 'mes', 'tipo']
-    
-    # Limpeza básica
-    df = df.dropna(subset=['aluno'])
-    df['mes'] = df['mes'].astype(str).str.strip().str.lower()
-    df['tipo'] = df['tipo'].astype(str).str.strip().str.lower()
-    df['valor'] = df['valor'].apply(limpar_valor)
+    # Tentativa de leitura direta da aba 'fluxo'
+    # Adicionamos o 'usecols' para garantir que ele só peça pro Google as 7 primeiras colunas
+    df = conn.read(
+        worksheet="fluxo",
+        ttl=0,
+        usecols=[0, 1, 2, 3, 4, 5, 6]
+    )
 
-    # --- SIDEBAR ---
-    st.sidebar.title("🏆 TEAM MUNIZ")
-    meses = sorted(df['mes'].unique().tolist())
-    mes_ref = st.sidebar.selectbox("Escolha o Mês", meses)
+    if df is not None:
+        # Renomeia para garantir que o código funcione independente do que está escrito no topo
+        df.columns = ['aluno', 'valor', 'dia', 'status', 'pacote', 'mes', 'tipo']
+        
+        # Limpa espaços e converte para minúsculo para não dar erro de busca
+        df = df.dropna(subset=['aluno'])
+        df['mes'] = df['mes'].astype(str).str.strip().str.lower()
+        df['tipo'] = df['tipo'].astype(str).str.strip().str.lower()
 
-    # Dados Filtrados
-    df_mes = df[df['mes'] == mes_ref].copy()
+        # Sidebar
+        st.sidebar.title("🏆 TEAM MUNIZ")
+        meses = sorted(df['mes'].unique().tolist())
+        mes_ref = st.sidebar.selectbox("Escolha o Mês", meses)
 
-    # Separação
-    rec = df_mes[df_mes['tipo'].str.contains('receita', na=False)]
-    gas = df_mes[df_mes['tipo'].str.contains('gasto', na=False)]
+        # Filtros
+        df_mes = df[df['mes'] == mes_ref].copy()
+        
+        def converter_moeda(x):
+            try:
+                if isinstance(x, str):
+                    return float(x.replace('R$', '').replace('.', '').replace(',', '.').strip())
+                return float(x)
+            except: return 0.0
 
-    t_rec, t_gas = rec['valor'].sum(), gas['valor'].sum()
+        df_mes['valor'] = df_mes['valor'].apply(converter_moeda)
 
-    # --- DISPLAY ---
-    st.title(f"📊 Gestão Team Muniz • {mes_ref.upper()}")
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Faturamento", f"R$ {t_rec:,.2f}")
-    c2.metric("Gastos Fixos", f"R$ {t_gas:,.2f}", delta_color="inverse")
-    c3.metric("Saldo Real", f"R$ {t_rec - t_gas:,.2f}")
+        # Divisão
+        rec = df_mes[df_mes['tipo'].contains('receita', na=False)]
+        gas = df_mes[df_mes['tipo'].contains('gasto', na=False)]
 
-    st.markdown("---")
+        # Dashboard
+        st.title(f"📊 Gestão • {mes_ref.upper()}")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Receitas", f"R$ {rec['valor'].sum():,.2f}")
+        col2.metric("Gastos", f"R$ {gas['valor'].sum():,.2f}", delta_color="inverse")
+        col3.metric("Saldo", f"R$ {rec['valor'].sum() - gas['valor'].sum():,.2f}")
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        with st.expander("💰 RECEITAS", expanded=True):
-            for _, r in rec.iterrows():
-                st.write(f"🟢 {r['aluno']} - R$ {r['valor']:.2f}")
-
-    with col_b:
-        with st.expander("💸 GASTOS", expanded=True):
-            for _, g in gas.iterrows():
-                st.write(f"🔴 {g['aluno']} - R$ {g['valor']:.2f}")
+        st.markdown("---")
+        ca, cb = st.columns(2)
+        with ca:
+            st.subheader("💰 Entradas")
+            st.dataframe(rec[['aluno', 'valor', 'status', 'pacote']], use_container_width=True)
+        with cb:
+            st.subheader("💸 Saídas")
+            st.dataframe(gas[['aluno', 'valor']], use_container_width=True)
 
 except Exception as e:
-    st.error(f"Erro: {e}")
-    st.info("💡 Vá no Google Sheets e exclua todas as colunas vazias à direita da coluna G.")
+    st.error(f"Erro de Comunicação com Google: {e}")
+    st.info("💡 Isso acontece quando o Google bloqueia o acesso temporariamente.")
+    st.markdown("""
+    **Como destravar:**
+    1. Vá no seu Google Sheets.
+    2. No canto superior direito, clique em **Compartilhar**.
+    3. Garanta que está como **'Qualquer pessoa com o link'** e como **'Leitor'**.
+    4. Copie o link novamente e cole nos Secrets do Streamlit Cloud.
+    """)
