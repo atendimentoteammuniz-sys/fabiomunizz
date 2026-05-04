@@ -21,7 +21,7 @@ def limpar_valor(valor):
 
 try:
     # Lendo a aba de Maio da sua planilha
-    df = conn.read(spreadsheet=url, worksheet="maio")
+    df = conn.read(ttl=0)
     
     # Tratamento de dados: remove espaços extras e limpa linhas vazias
     df.columns = df.columns.str.strip()
