@@ -2,10 +2,10 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# 1. CONFIGURAÇÃO DE TELA
+# CONFIGURAÇÃO DE TELA
 st.set_page_config(page_title="Financeiro Team Muniz", layout="wide", page_icon="🏆")
 
-# 2. DESIGN PREMIUM (PRETO E DOURADO)
+# DESIGN PREMIUM
 st.markdown("""
     <style>
     .main { background-color: #000000; }
@@ -14,7 +14,6 @@ st.markdown("""
     .stSidebar { background-color: #050505 !important; border-right: 1px solid #D4AF37; }
     .stExpander { border: 1px solid #D4AF37 !important; background-color: #0A0A0A !important; border-radius: 10px; }
     h1, h2, h3 { color: #D4AF37 !important; }
-    p { color: #FFFFFF; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -26,82 +25,81 @@ def limpar_valor(valor):
         return float(valor)
     except: return 0.0
 
-# 3. CONEXÃO
+# CONEXÃO
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # Leitura da aba fluxo
-    df_bruto = conn.read(worksheet="fluxo", ttl=0) 
-    df_bruto.columns = df_bruto.columns.astype(str).str.strip().str.lower()
+    # LER SEM ESPECIFICAR ABA PRIMEIRO PARA EVITAR O BAD REQUEST
+    df_bruto = conn.read(ttl=0)
     
-    # Tratamento de dados
-    df_bruto = df_bruto[df_bruto['aluno'].notna()]
+    # Se ele não encontrar a coluna 'Mês' na primeira aba, ele tenta forçar a aba 'fluxo'
+    # mas usando um método de tratamento de erro
+    try:
+        if 'Mês' not in df_bruto.columns and 'mês' not in df_bruto.columns:
+            df_bruto = conn.read(worksheet="fluxo", ttl=0)
+    except:
+        pass
+
+    # Padronização total
+    df_bruto.columns = df_bruto.columns.astype(str).str.strip().str.lower()
+    df_bruto = df_bruto.dropna(subset=['aluno']) # Remove linhas vazias que causam erro 400
+    
     if 'valor mensal' in df_bruto.columns:
         df_bruto['valor mensal'] = df_bruto['valor mensal'].apply(limpar_valor)
 
     # --- MENU LATERAL ---
     st.sidebar.title("🏆 TEAM MUNIZ")
     
-    if 'mês' in df_bruto.columns:
-        lista_meses = df_bruto['mês'].unique().tolist()
+    col_mes = 'mês' if 'mês' in df_bruto.columns else None
+    
+    if col_mes:
+        lista_meses = sorted(df_bruto[col_mes].unique().tolist())
         mes_escolhido = st.sidebar.selectbox("Selecione o Mês", lista_meses)
-        df = df_bruto[df_bruto['mês'] == mes_escolhido]
+        df = df_bruto[df_bruto[col_mes] == mes_escolhido]
     else:
-        st.error("Coluna 'Mês' não encontrada.")
+        st.error("Coluna 'Mês' não encontrada. Verifique o cabeçalho da planilha.")
         st.stop()
 
     st.title(f"📊 Painel Financeiro • {mes_escolhido.upper()}")
 
-    # --- CAMADA 1: MÉTRICAS ---
+    # --- MÉTRICAS ---
     total = df['valor mensal'].sum()
     pago_df = df[df['status'].str.contains('pago', na=False, case=False)]
     pendente_df = df[~df['status'].str.contains('pago', na=False, case=False)]
     
     pago_total = pago_df['valor mensal'].sum()
-    pendente_total = total - pago_total
 
     m1, m2, m3 = st.columns(3)
     m1.metric("Faturamento Total", f"R$ {total:,.2f}")
     m2.metric("Recebido", f"R$ {pago_total:,.2f}")
-    m3.metric("Pendente", f"R$ {pendente_total:,.2f}")
+    m3.metric("Pendente", f"R$ {total - pago_total:,.2f}")
 
     st.markdown("---")
     
-    # --- CAMADA 2: RELATÓRIO DE PAGAMENTOS POR DIA (NOVO) ---
-    with st.expander("📅 RELATÓRIO DE ENTRADAS POR DIA", expanded=False):
+    # --- RELATÓRIO POR DIA ---
+    with st.expander("📅 RELATÓRIO DE ENTRADAS POR DIA"):
         if 'dia' in df.columns:
-            # Agrupa os valores por dia e ordena
+            # Garante que 'dia' seja número para ordenar certo
+            df['dia'] = pd.to_numeric(df['dia'], errors='coerce').fillna(0)
             relatorio_dia = df.groupby('dia')['valor mensal'].sum().reset_index()
             relatorio_dia = relatorio_dia.sort_values('dia')
             
             for _, row in relatorio_dia.iterrows():
-                st.markdown(f"""
-                <div style='display: flex; justify-content: space-between; border-bottom: 1px solid #333; padding: 5px 0;'>
-                    <span style='color: #FFFFFF;'>Dia {int(row['dia'])}</span>
-                    <span style='color: #D4AF37; font-weight: bold;'>R$ {row['valor mensal']:,.2f}</span>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.write("Coluna 'Dia' não encontrada.")
+                if row['valor mensal'] > 0:
+                    st.markdown(f"**Dia {int(row['dia'])}:** R$ {row['valor mensal']:,.2f}")
+                    st.divider()
 
-    # --- CAMADA 3: LISTAS DE ALUNOS ---
+    # --- LISTAS ---
     c_pend, c_pago = st.columns(2)
-    
     with c_pend:
-        with st.expander("❌ LISTA DE PENDENTES", expanded=True):
-            if pendente_df.empty:
-                st.write("✅ Tudo pago!")
-            else:
-                for _, row in pendente_df.iterrows():
-                    st.write(f"🔴 {row['aluno']} - R$ {row['valor mensal']:.2f} (Dia {row['dia']})")
+        with st.expander("❌ PENDENTES", expanded=True):
+            for _, row in pendente_df.iterrows():
+                st.write(f"🔴 {row['aluno']} - R$ {row['valor mensal']:.2f} (Dia {row['dia']})")
 
     with c_pago:
-        with st.expander("✅ LISTA DE PAGOS"):
-            if pago_df.empty:
-                st.write("Nenhum pagamento registrado.")
-            else:
-                for _, row in pago_df.iterrows():
-                    st.write(f"🟢 {row['aluno']} - R$ {row['valor mensal']:.2f}")
+        with st.expander("✅ PAGOS"):
+            for _, row in pago_df.iterrows():
+                st.write(f"🟢 {row['aluno']} - R$ {row['valor mensal']:.2f}")
 
 except Exception as e:
-    st.error(f"Erro: {e}")
+    st.error(f"Erro de Conexão: {e}")
