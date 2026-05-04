@@ -2,10 +2,10 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# CONFIGURAÇÃO DE PÁGINA
+# 1. SETUP DE PÁGINA
 st.set_page_config(page_title="Financeiro Team Muniz", layout="wide", page_icon="🏆")
 
-# DESIGN PREMIUM
+# 2. ESTILO VISUAL
 st.markdown("""
     <style>
     .main { background-color: #000000; }
@@ -25,68 +25,73 @@ def limpar_valor(valor):
         return float(valor)
     except: return 0.0
 
+# 3. CONEXÃO
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # LENDO APENAS UMA ABA (MUITO MAIS SEGURO)
-    df_bruto = conn.read(worksheet="fluxo", ttl=0)
-    df_bruto.columns = df_bruto.columns.astype(str).str.strip().str.lower()
-    df_bruto = df_bruto.dropna(subset=['aluno']) # Remove linhas vazias
-
-    # TRATAMENTO DE VALORES
-    valor_col = 'valor mensal' if 'valor mensal' in df_bruto.columns else df_bruto.columns[1]
-    df_bruto[valor_col] = df_bruto[valor_col].apply(limpar_valor)
+    # Lendo a aba fluxo - Usando ttl=0 para garantir dados novos
+    df = conn.read(worksheet="fluxo", ttl=0)
+    
+    # Padronização agressiva de nomes de colunas
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    
+    # Remove linhas onde o nome do aluno/item está vazio
+    df = df.dropna(subset=[df.columns[0]])
 
     # --- SIDEBAR ---
     st.sidebar.title("🏆 TEAM MUNIZ")
-    lista_meses = sorted(df_bruto['mês'].unique().tolist())
-    mes_ref = st.sidebar.selectbox("Selecione o Mês", lista_meses)
+    
+    # Detecta a coluna de mês (independente de maiúscula/minúscula)
+    col_mes = 'mês' if 'mês' in df.columns else 'mes'
+    
+    if col_mes in df.columns:
+        lista_meses = sorted(df[col_mes].unique().tolist())
+        mes_ref = st.sidebar.selectbox("Selecione o Mês", lista_meses)
+        df_mes = df[df[col_mes] == mes_ref].copy()
+    else:
+        st.error("Coluna 'Mês' não encontrada na planilha.")
+        st.stop()
 
-    # Filtragem por Mês
-    df = df_bruto[df_bruto['mês'] == mes_ref].copy()
+    # --- PROCESSAMENTO DE VALORES ---
+    # Tenta encontrar a coluna de valor
+    col_valor = 'valor mensal' if 'valor mensal' in df.columns else df.columns[1]
+    df_mes[col_valor] = df_mes[col_valor].apply(limpar_valor)
 
-    # --- LÓGICA DE CÁLCULO (RECEITA VS GASTO) ---
-    # Filtra as linhas baseado na coluna 'tipo'
-    receitas_df = df[df['tipo'].str.contains('receita', na=False, case=False)]
-    gastos_df = df[df['tipo'].str.contains('gasto', na=False, case=False)]
+    # --- SEPARAÇÃO RECEITA VS GASTO ---
+    col_tipo = 'tipo' if 'tipo' in df.columns else None
+    
+    if col_tipo:
+        receitas_df = df_mes[df_mes[col_tipo].str.contains('receita', na=False, case=False)]
+        gastos_df = df_mes[df_mes[col_tipo].str.contains('gasto|saida|saída', na=False, case=False)]
+    else:
+        receitas_df = df_mes
+        gastos_df = pd.DataFrame(columns=df.columns)
 
-    total_receita = receitas_df[valor_col].sum()
-    total_gasto = gastos_df[valor_col].sum()
-    saldo_final = total_receita - total_gasto
+    # --- DASHBOARD ---
+    st.title(f"📊 Gestão Financeira • {mes_ref.upper()}")
+    
+    total_rec = receitas_df[col_valor].sum()
+    total_gas = gastos_df[col_valor].sum()
+    saldo = total_rec - total_gas
 
-    st.title(f"📊 Balanço Team Muniz • {mes_ref.upper()}")
-
-    # PAINEL DE MÉTRICAS
     m1, m2, m3 = st.columns(3)
-    m1.metric("Receita Total", f"R$ {total_receita:,.2f}")
-    m2.metric("Gastos Totais", f"R$ {total_gasto:,.2f}", delta_color="inverse")
-    m3.metric("Saldo Líquido", f"R$ {saldo_final:,.2f}")
+    m1.metric("Receitas", f"R$ {total_rec:,.2f}")
+    m2.metric("Gastos", f"R$ {total_gas:,.2f}", delta_color="inverse")
+    m3.metric("Saldo Líquido", f"R$ {saldo:,.2f}")
 
     st.markdown("---")
 
-    # RELATÓRIO DETALHADO
-    col_rec, col_gas = st.columns(2)
-
-    with col_rec:
-        with st.expander("💰 RECEITAS (ALUNOS)", expanded=True):
+    c1, c2 = st.columns(2)
+    with c1:
+        with st.expander("💰 RECEITAS DETALHADAS", expanded=True):
             for _, r in receitas_df.iterrows():
-                st.write(f"🟢 {r['aluno']} - R$ {r[valor_col]:.2f}")
-
-    with col_gas:
-        with st.expander("💸 GASTOS (CONTAS)", expanded=True):
-            if gastos_df.empty:
-                st.write("Nenhum gasto registrado para este mês.")
-            else:
-                for _, g in gastos_df.iterrows():
-                    st.write(f"🔴 {g['aluno']} - R$ {g[valor_col]:.2f}")
-
-    # FLUXO POR DIA
-    with st.expander("📅 RECEBIMENTOS POR DIA"):
-        if 'dia' in receitas_df.columns:
-            rel_dia = receitas_df.groupby('dia')[valor_col].sum().reset_index().sort_values('dia')
-            for _, row in rel_dia.iterrows():
-                st.write(f"**Dia {int(row['dia'])}:** R$ {row[valor_col]:.2f}")
+                st.write(f"🟢 {r[df.columns[0]]}: R$ {r[col_valor]:.2f}")
+    
+    with c2:
+        with st.expander("💸 GASTOS DETALHADOS", expanded=True):
+            for _, g in gastos_df.iterrows():
+                st.write(f"🔴 {g[df.columns[0]]}: R$ {g[col_valor]:.2f}")
 
 except Exception as e:
-    st.error(f"Erro de Processamento: {e}")
-    st.info("⚠️ Verifique se a coluna 'tipo' foi criada na aba fluxo e se os nomes estão corretos.")
+    st.error(f"Erro na conexão: {e}")
+    st.info("💡 Dica: Verifique se o seu link nos Secrets termina em 'edit?usp=sharing'.")
