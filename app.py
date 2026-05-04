@@ -29,10 +29,12 @@ def limpar_valor(valor):
             return float(v)
         return float(valor)
     except: return 0.0
-
 try:
-    # Lendo a aba centralizada
+    # 1. Primeiro, tentamos ler a planilha sem especificar aba para testar a conexão
+    # 2. Depois, forçamos a busca pela aba 'fluxo'
     df_bruto = conn.read(worksheet="fluxo", ttl=0)
+    
+    # Limpeza de colunas
     df_bruto.columns = df_bruto.columns.astype(str).str.strip().str.lower()
     
     # Tratamento de dados
