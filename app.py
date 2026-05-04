@@ -1,85 +1,80 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# 1. SETUP
+# 1. CONFIGURAÇÃO DE TELA
 st.set_page_config(page_title="Financeiro Team Muniz", layout="wide", page_icon="🏆")
 
-# 2. ESTILO
+# 2. DESIGN PREMIUM
 st.markdown("""
     <style>
     .main { background-color: #000000; }
-    div[data-testid="stMetricValue"] { color: #D4AF37 !important; }
+    div[data-testid="stMetricValue"] { color: #D4AF37 !important; font-weight: bold; }
     div[data-testid="stMetricLabel"] { color: #FFFFFF !important; }
     h1, h2, h3 { color: #D4AF37 !important; }
+    .stDataFrame { background-color: #0A0A0A; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. CONEXÃO (Com tratamento de erro manual)
-conn = st.connection("gsheets", type=GSheetsConnection)
+# 3. FUNÇÃO DE CONEXÃO DIRETA (SEM BIBLIOTECAS EXTRAS)
+def carregar_dados():
+    # Pega o link dos secrets
+    sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+    # Transforma o link para formato de exportação CSV (Garante que não dê Erro 400)
+    csv_url = sheet_url.replace("/edit?usp=sharing", "/export?format=csv&gid=0")
+    # Lê os dados
+    df = pd.read_csv(csv_url)
+    return df
 
 try:
-    # Tentativa de leitura direta da aba 'fluxo'
-    # Adicionamos o 'usecols' para garantir que ele só peça pro Google as 7 primeiras colunas
-    df = conn.read(
-        worksheet="fluxo",
-        ttl=0,
-        usecols=[0, 1, 2, 3, 4, 5, 6]
-    )
+    df_bruto = carregar_dados()
+    
+    # Padronização de Colunas (Baseado na sua tabela A até G)
+    df_bruto.columns = ['aluno', 'valor', 'dia', 'status', 'pacote', 'mes', 'tipo']
+    
+    # Limpeza
+    df_bruto = df_bruto.dropna(subset=['aluno'])
+    df_bruto['mes'] = df_bruto['mes'].str.strip().str.lower()
+    df_bruto['tipo'] = df_bruto['tipo'].str.strip().str.lower()
 
-    if df is not None:
-        # Renomeia para garantir que o código funcione independente do que está escrito no topo
-        df.columns = ['aluno', 'valor', 'dia', 'status', 'pacote', 'mes', 'tipo']
-        
-        # Limpa espaços e converte para minúsculo para não dar erro de busca
-        df = df.dropna(subset=['aluno'])
-        df['mes'] = df['mes'].astype(str).str.strip().str.lower()
-        df['tipo'] = df['tipo'].astype(str).str.strip().str.lower()
+    def limpar_moeda(x):
+        if isinstance(x, str):
+            return float(x.replace('R$', '').replace('.', '').replace(',', '.').strip())
+        return float(x)
 
-        # Sidebar
-        st.sidebar.title("🏆 TEAM MUNIZ")
-        meses = sorted(df['mes'].unique().tolist())
-        mes_ref = st.sidebar.selectbox("Escolha o Mês", meses)
+    df_bruto['valor'] = df_bruto['valor'].apply(limpar_moeda)
 
-        # Filtros
-        df_mes = df[df['mes'] == mes_ref].copy()
-        
-        def converter_moeda(x):
-            try:
-                if isinstance(x, str):
-                    return float(x.replace('R$', '').replace('.', '').replace(',', '.').strip())
-                return float(x)
-            except: return 0.0
+    # --- SIDEBAR ---
+    st.sidebar.title("🏆 TEAM MUNIZ")
+    meses = sorted(df_bruto['mes'].unique().tolist())
+    mes_ref = st.sidebar.selectbox("Selecione o Mês", meses)
 
-        df_mes['valor'] = df_mes['valor'].apply(converter_moeda)
+    # Filtragem
+    df_mes = df_bruto[df_bruto['mes'] == mes_ref].copy()
+    receitas = df_mes[df_mes['tipo'] == 'receita']
+    gastos = df_mes[df_mes['tipo'] == 'gasto']
 
-        # Divisão
-        rec = df_mes[df_mes['tipo'].contains('receita', na=False)]
-        gas = df_mes[df_mes['tipo'].contains('gasto', na=False)]
+    # --- DASHBOARD ---
+    st.title(f"📊 Gestão Financeira • {mes_ref.upper()}")
+    
+    total_rec = receitas['valor'].sum()
+    total_gas = gastos['valor'].sum()
 
-        # Dashboard
-        st.title(f"📊 Gestão • {mes_ref.upper()}")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Receitas", f"R$ {rec['valor'].sum():,.2f}")
-        col2.metric("Gastos", f"R$ {gas['valor'].sum():,.2f}", delta_color="inverse")
-        col3.metric("Saldo", f"R$ {rec['valor'].sum() - gas['valor'].sum():,.2f}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Faturamento", f"R$ {total_rec:,.2f}")
+    m2.metric("Gastos", f"R$ {total_gas:,.2f}", delta_color="inverse")
+    m3.metric("Lucro Líquido", f"R$ {total_rec - total_gas:,.2f}")
 
-        st.markdown("---")
-        ca, cb = st.columns(2)
-        with ca:
-            st.subheader("💰 Entradas")
-            st.dataframe(rec[['aluno', 'valor', 'status', 'pacote']], use_container_width=True)
-        with cb:
-            st.subheader("💸 Saídas")
-            st.dataframe(gas[['aluno', 'valor']], use_container_width=True)
+    st.markdown("---")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("💰 Receitas")
+        st.dataframe(receitas[['aluno', 'valor', 'status', 'pacote']], use_container_width=True)
+
+    with col_b:
+        st.subheader("💸 Gastos")
+        st.dataframe(gastos[['aluno', 'valor']], use_container_width=True)
 
 except Exception as e:
-    st.error(f"Erro de Comunicação com Google: {e}")
-    st.info("💡 Isso acontece quando o Google bloqueia o acesso temporariamente.")
-    st.markdown("""
-    **Como destravar:**
-    1. Vá no seu Google Sheets.
-    2. No canto superior direito, clique em **Compartilhar**.
-    3. Garanta que está como **'Qualquer pessoa com o link'** e como **'Leitor'**.
-    4. Copie o link novamente e cole nos Secrets do Streamlit Cloud.
-    """)
+    st.error(f"Erro ao carregar: {e}")
+    st.info("💡 Certifique-se de que a aba 'fluxo' é a primeira da planilha e que o link termina em /edit?usp=sharing")
