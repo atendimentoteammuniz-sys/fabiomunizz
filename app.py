@@ -64,6 +64,7 @@ df_caixa = carregar_dados("Fluxo_Caixa_Geral")
 coluna_status_fin = None
 coluna_nome_fin = None
 coluna_valor_fin = None
+coluna_mes_fin = 'Mes_Referencia'
 
 if not df_financeiro.empty:
     for col in df_financeiro.columns:
@@ -87,14 +88,18 @@ else:
 
 # Mapeamento e Tratamento Numérico de Saídas (Fluxo de Caixa)
 coluna_valor_saida = None
+coluna_mes_caixa = None
+
 if not df_caixa.empty:
     for col in df_caixa.columns:
         col_lower = col.lower()
         if 'valor' in col_lower or 'saida' in col_lower or 'pago' in col_lower or 'gasto' in col_lower:
             coluna_valor_saida = col
-            break
+        if 'mes' in col_lower or 'referencia' in col_lower or 'periodo' in col_lower:
+            coluna_mes_caixa = col
 
 if not coluna_valor_saida: coluna_valor_saida = 'Valor_Saida'
+if not coluna_mes_caixa: coluna_mes_caixa = 'Mes_Referencia' if 'Mes_Referencia' in df_caixa.columns else df_caixa.columns[0]
 
 if not df_caixa.empty and coluna_valor_saida in df_caixa.columns:
     df_caixa['Saida_Num'] = df_caixa[coluna_valor_saida].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
@@ -127,19 +132,40 @@ if perfil == "👑 Painel do Treinador":
         if menu == "📊 Dashboard Geral":
             st.title("Dashboard de Controle Financeiro e Operacional")
             
-            # Cálculos dos Quadrinhos Primários
-            ativos = len(df_alunos[df_alunos['Status_Aluno'] == 'Ativo']) if not df_alunos.empty else 0
-            entradas = df_financeiro['Valor_Num'].sum() if not df_financeiro.empty else 0.0
-            saidas = df_caixa['Saida_Num'].sum() if not df_caixa.empty else 0.0
+            # --- SISTEMA DE FILTRO POR MÊS DE REFERÊNCIA ---
+            Lista_meses = ["Todos"]
+            if not df_financeiro.empty and coluna_mes_fin in df_financeiro.columns:
+                meses_fin = df_financeiro[coluna_mes_fin].dropna().unique().tolist()
+                Lista_meses.extend([str(m) for m in meses_fin if str(m).strip() != ""])
             
-            # Cálculo do valor Já Recebido
-            if not df_financeiro.empty and coluna_status_fin in df_financeiro.columns:
-                status_normalizado = df_financeiro[coluna_status_fin].astype(str).str.lower().str.strip()
-                ja_recebido = df_financeiro[status_normalizado == 'pago']['Valor_Num'].sum()
+            # Remove duplicados mantendo a ordem
+            Lista_meses = list(dict.fromkeys(Lista_meses))
+            
+            # Seletor de Mês posicionado no topo do Dashboard
+            mes_selecionado = st.selectbox("📅 Selecione o Mês de Referência:", Lista_meses)
+            st.write("---")
+            
+            # Filtragem dos DataFrames com base no mês escolhido
+            if mes_selecionado != "Todos":
+                df_fin_filtrado = df_financeiro[df_financeiro[coluna_mes_fin].astype(str) == mes_selecionado]
+                df_caixa_filtrado = df_caixa[df_caixa[coluna_mes_caixa].astype(str) == mes_selecionado]
+            else:
+                df_fin_filtrado = df_financeiro
+                df_caixa_filtrado = df_caixa
+
+            # Cálculos dos Quadrinhos Primários baseados no filtro do mês
+            ativos = len(df_alunos[df_alunos['Status_Aluno'] == 'Ativo']) if not df_alunos.empty else 0
+            entradas = df_fin_filtrado['Valor_Num'].sum() if not df_fin_filtrado.empty else 0.0
+            saidas = df_caixa_filtrado['Saida_Num'].sum() if not df_caixa_filtrado.empty else 0.0
+            
+            # Cálculo do valor Já Recebido no mês filtrado
+            if not df_fin_filtrado.empty and coluna_status_fin in df_fin_filtrado.columns:
+                status_normalizado = df_fin_filtrado[coluna_status_fin].astype(str).str.lower().str.strip()
+                ja_recebido = df_fin_filtrado[status_normalizado == 'pago']['Valor_Num'].sum()
             else:
                 ja_recebido = 0.0
             
-            # NOVA REGRA ESTRATÉGICA: Real a Receber = Total Esperado - Já Recebido - Passivos (Saídas)
+            # Regra Estratégica: Real a Receber do mês selecionado
             real_a_receber = entradas - ja_recebido - saidas
             
             # Renderização dos Quadrinhos de Layout (Organizado em 5 colunas)
@@ -153,20 +179,18 @@ if perfil == "👑 Painel do Treinador":
             with c4:
                 st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;font-size:13px;'>Saídas (Fluxo)</span><br><h2 style='margin:0;color:#FF4B4B;'>R$ {saidas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c5:
-                # O card agora exibe a cor dourada se positivo, ou vermelha caso os passivos superem o restante a receber
                 cor_real = "#D4AF37" if real_a_receber >= 0 else "#FF4B4B"
                 st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Real a Receber</span><br><h2 style='margin:0;color:{cor_real};'>R$ {real_a_receber:,.2f}</h2></div>", unsafe_allow_html=True)
             
             st.write("---")
-            st.subheader("📲 Central de Mensagens e Cobranças Ativas")
+            st.subheader("📲 Central de Mensagens e Cobranças Ativas do Período")
             
-            if coluna_status_fin in df_financeiro.columns and coluna_nome_fin in df_financeiro.columns:
-                status_normalizado_cob = df_financeiro[coluna_status_fin].astype(str).str.lower().str.strip()
-                devedores = df_financeiro[status_normalizado_cob == 'pendente'].copy()
+            if coluna_status_fin in df_fin_filtrado.columns and coluna_nome_fin in df_fin_filtrado.columns:
+                status_normalizado_cob = df_fin_filtrado[coluna_status_fin].astype(str).str.lower().str.strip()
+                devedores = df_fin_filtrado[status_normalizado_cob == 'pendente'].copy()
                 
                 if not devedores.empty:
                     hoje = datetime.now()
-                    
                     vencidos_lista = []
                     a_vencer_lista = []
                     
@@ -228,11 +252,11 @@ if perfil == "👑 Painel do Treinador":
                             with col_btn:
                                 st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
                 else:
-                    st.success("Tudo em dia! Nenhuma cobrança pendente para envio.")
+                    st.success("Tudo em dia! Nenhuma cobrança pendente para este período.")
             else:
                 st.warning("Ajuste as colunas na planilha para ativar o envio automático de WhatsApp.")
 
-        # --- REPRODUÇÃO DOS OUTROS MÓDULOS DE SUPORTE ---
+        # --- OUTROS MÓDULOS INTACTOS ---
         elif menu == "👥 Central de Cadastros":
             st.title("Central de Cadastro de Alunos")
             if not df_alunos.empty:
