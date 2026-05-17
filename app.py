@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import urllib.parse
+from datetime import datetime
 
 # Configuração da página do aplicativo
 st.set_page_config(
@@ -23,6 +24,7 @@ st.markdown("""
     .kpi-box-red { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #FF4B4B; margin-bottom: 15px; }
     .card-exercicio { background-color: #1c1c1c; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 10px; }
     .card-cadastro { background-color: #161616; padding: 12px; border-radius: 6px; border: 1px solid #D4AF37; margin-bottom: 8px; }
+    .alerta-vencido { background-color: #2b1313; padding: 12px; border-radius: 6px; border-left: 5px solid #FF4B4B; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,7 +59,7 @@ df_treinos = carregar_dados("Prescricao_Treinos")
 df_bio = carregar_dados("Historico_Bioimpedancia")
 df_caixa = carregar_dados("Fluxo_Caixa_Geral")
 
-# --- MAPEAMENTO DINÂMICO DE COLUNAS (Evita KeyError se mudarem os nomes) ---
+# --- MAPEAMENTO DINÂMICO DE COLUNAS ---
 coluna_status_fin = None
 coluna_nome_fin = None
 coluna_valor_fin = None
@@ -119,7 +121,7 @@ if perfil == "👑 Painel do Treinador":
         )
         
         # -------------------------------------------------------------
-        # MÓDULO 1: DASHBOARD GERAL
+        # MÓDULO 1: DASHBOARD GERAL (Com Alerta de Vencidos Dinâmico)
         # -------------------------------------------------------------
         if menu == "📊 Dashboard Geral":
             st.title("Dashboard de Controle Financeiro e Operacional")
@@ -142,21 +144,68 @@ if perfil == "👑 Painel do Treinador":
                 cor_saldo = "#D4AF37" if saldo_liquido >= 0 else "#FF4B4B"
                 st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Saldo Real Líquido</span><br><h2 style='margin:0;color:{cor_saldo};'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
             
-            # CENTRAL DE COBRANÇA DIRETO NO DASHBOARD
             st.write("---")
             st.subheader("📲 Central de Mensagens e Cobranças Ativas")
             
             if coluna_status_fin in df_financeiro.columns and coluna_nome_fin in df_financeiro.columns:
-                devedores = df_financeiro[df_financeiro[coluna_status_fin] == 'Pendente']
+                devedores = df_financeiro[df_financeiro[coluna_status_fin] == 'Pendente'].copy()
                 
                 if not devedores.empty:
+                    hoje = datetime.now()
+                    
+                    vencidos_lista = []
+                    a_vencer_lista = []
+                    
+                    # Separando quem está vencido de quem vai vencer
                     for idx, row in devedores.iterrows():
-                        aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
-                        if not aluno_info.empty:
-                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip()
+                        vencimento_data = hoje
+                        esta_vencido = False
+                        
+                        if 'Data_Vencimento' in row and pd.notna(row['Data_Vencimento']):
+                            try:
+                                vencimento_data = datetime.strptime(str(row['Data_Vencimento']).strip(), "%d/%m/%Y")
+                                if vencimento_data < hoje:
+                                    esta_vencido = True
+                            except:
+                                esta_vencido = False # Caso o formato de data falhe, joga na lista normal
+                        
+                        if esta_vencido:
+                            vencidos_lista.append(row)
+                        else:
+                            a_vencer_lista.append(row)
+                    
+                    # 🔴 BLOCO 1: EXCLUSIVO PARA ALUNOS JÁ VENCIDOS (ALERTA VISUAL RÁPIDO)
+                    if vencidos_lista:
+                        st.error("🚨 ALERTA: ALUNOS COM MENSALIDADE VENCIDA")
+                        for row in vencidos_lista:
+                            aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
+                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty else ""
+                            nome_aluno = row[coluna_nome_fin]
+                            vencimento = row['Data_Vencimento']
+                            valor = row[coluna_valor_fin]
+                            
+                            mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
+                            mensagem_codificada = urllib.parse.quote(mensagem)
+                            link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                            
+                            st.markdown(f"""
+                            <div class='alerta-vencido'>
+                                <span style='color:#FF4B4B; font-weight:bold;'>⚠️ ATRASADO</span> | 
+                                <b>{nome_aluno}</b> | Vencimento: {vencimento} | Valor: <b>{valor}</b>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            st.markdown(f"[📩 Enviar Cobrança Urgente via WhatsApp]({link_whatsapp})")
+                        st.write("---")
+                    
+                    # 🟡 BLOCO 2: MENSALIDADES A VENCER / MÊS ATUAL
+                    if a_vencer_lista:
+                        st.write("### 📅 Mensalidades em Aberto (A Vencer)")
+                        for row in a_vencer_lista:
+                            aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
+                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty else ""
                             nome_aluno = row[coluna_nome_fin]
                             vencimento = row['Data_Vencimento'] if 'Data_Vencimento' in row else "Mês Atual"
-                            valor = row[coluna_valor_fin] if coluna_valor_fin in row else "Valor em Aberto"
+                            valor = row[coluna_valor_fin]
                             
                             mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
                             mensagem_codificada = urllib.parse.quote(mensagem)
@@ -164,7 +213,7 @@ if perfil == "👑 Painel do Treinador":
                             
                             col_txt, col_btn = st.columns([4, 1])
                             with col_txt:
-                                st.write(f"🔴 **{nome_aluno}** | Vencimento: {vencimento} | Valor: **{valor}**")
+                                st.write(f"🟡 **{nome_aluno}** | Vencimento: {vencimento} | Valor: **{valor}**")
                             with col_btn:
                                 st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
                 else:
@@ -173,21 +222,19 @@ if perfil == "👑 Painel do Treinador":
                 st.warning("Ajuste as colunas na planilha para ativar o envio automático de WhatsApp.")
 
         # -------------------------------------------------------------
-        # MÓDULO 2: CENTRAL DE CADASTROS (Modificado para Cards Dinâmicos)
+        # MÓDULO 2: CENTRAL DE CADASTROS
         # -------------------------------------------------------------
         elif menu == "👥 Central de Cadastros":
             st.title("Central de Cadastro de Alunos")
             
             if not df_alunos.empty:
                 aluno_selecionado = st.selectbox("Selecione o Aluno para visualizar o perfil:", df_alunos['Nome_Completo'].tolist())
-                
                 dados_aluno = df_alunos[df_alunos['Nome_Completo'] == aluno_selecionado]
                 
                 if not dados_aluno.empty:
                     row_aluno = dados_aluno.iloc[0]
                     st.write(f"### 📇 Ficha Cadastral: {aluno_selecionado}")
                     
-                    # Definição das colunas solicitadas
                     colunas_cards = ['ID_Aluno', 'Nome_Completo', 'WhatsApp', 'Data_Matricula', 'Modalidade', 'Plano', 'Status_Aluno']
                     
                     for col_card in colunas_cards:
@@ -204,7 +251,7 @@ if perfil == "👑 Painel do Treinador":
                 st.error("Planilha de cadastro vazia ou inacessível.")
 
         # -------------------------------------------------------------
-        # MÓDULO 3: COBRANÇAS & RECEITAS (Sem gráfico de pizza)
+        # MÓDULO 3: COBRANÇAS & RECEITAS
         # -------------------------------------------------------------
         elif menu == "💰 Cobranças & Receitas":
             st.title("Gestão de Receitas por Categoria")
@@ -222,7 +269,7 @@ if perfil == "👑 Painel do Treinador":
                 st.error("⚠️ Coluna de validação de pagamento não identificada na aba Controle_Financeiro.")
 
         # -------------------------------------------------------------
-        # MÓDULO 4: ORGANIZAÇÃO DA AGENDA (Apenas cards por aluno)
+        # MÓDULO 4: ORGANIZAÇÃO DA AGENDA
         # -------------------------------------------------------------
         elif menu == "📅 Organização da Agenda":
             st.title("Cards de Agendamentos Semanais")
@@ -252,7 +299,7 @@ if perfil == "👑 Painel do Treinador":
                 st.info("Nenhum dado encontrado na aba de Agendamentos.")
 
         # -------------------------------------------------------------
-        # MÓDULO 5: CENTRAL DE EXERCÍCIOS (Layout intocado)
+        # MÓDULO 5: CENTRAL DE EXERCÍCIOS
         # -------------------------------------------------------------
         elif menu == "🏋️ Central de Exercícios":
             st.title("Fichas de Treino por Aluno")
@@ -260,7 +307,6 @@ if perfil == "👑 Painel do Treinador":
             aluno_sel = st.selectbox("Selecione o Aluno para auditar a ficha:", df_alunos['Nome_Completo'].tolist() if not df_alunos.empty else [])
             if aluno_sel:
                 id_aluno_sel = df_alunos[df_alunos['Nome_Completo'] == aluno_sel]['ID_Aluno'].values[0]
-                
                 st.write(f"### Ficha Tática Técnica de: {aluno_sel} ({id_aluno_sel})")
                 
                 treino_filtrado = df_treinos[df_treinos['ID_Aluno'] == id_aluno_sel] if not df_treinos.empty else pd.DataFrame()
