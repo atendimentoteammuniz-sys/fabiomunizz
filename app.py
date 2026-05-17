@@ -21,6 +21,7 @@ st.markdown("""
         background-color: #D4AF37; color: #000000; font-weight: bold; border-radius: 6px; width: 100%;
     }
     .kpi-box { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #D4AF37; margin-bottom: 15px; }
+    .kpi-box-green { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #28a745; margin-bottom: 15px; }
     .kpi-box-red { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #FF4B4B; margin-bottom: 15px; }
     .card-exercicio { background-color: #1c1c1c; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 10px; }
     .card-cadastro { background-color: #161616; padding: 12px; border-radius: 6px; border: 1px solid #D4AF37; margin-bottom: 8px; }
@@ -31,7 +32,7 @@ st.markdown("""
 # URL Base de exportação corrigida conforme os novos links
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# DICIONÁRIO DE GIDS ATUALIZADO
+# DICIONÁRIO DE GIDS ATUALIZADO (Aba Controle_Financeiro aponta para o GID 266431932)
 GIDS = {
     "Cadastro_Alunos": "896837375",
     "Historico_Bioimpedancia": "736167025",
@@ -78,7 +79,7 @@ if not coluna_status_fin: coluna_status_fin = 'Status_Pagamento'
 if not coluna_nome_fin: coluna_nome_fin = 'Nome_Aluno'
 if not coluna_valor_fin: coluna_valor_fin = 'Valor_Cobrado'
 
-# Tratamento Numérico Financeiro (Receitas)
+# Tratamento Numérico Financeiro (Receitas da aba Controle_Financeiro)
 if not df_financeiro.empty and coluna_valor_fin in df_financeiro.columns:
     df_financeiro['Valor_Num'] = df_financeiro[coluna_valor_fin].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
 else:
@@ -132,20 +133,20 @@ if perfil == "👑 Painel do Treinador":
             saidas = df_caixa['Saida_Num'].sum() if not df_caixa.empty else 0.0
             saldo_liquido = entradas - saidas
             
-            # Cálculo específico do valor já recebido dos alunos (Status == Pago)
+            # Cálculo do valor Real Já Recebido (Apenas linhas com Status 'Pago' vindas da aba Controle_Financeiro GID 266431932)
             if not df_financeiro.empty and coluna_status_fin in df_financeiro.columns:
                 ja_recebido = df_financeiro[df_financeiro[coluna_status_fin] == 'Pago']['Valor_Num'].sum()
             else:
                 ja_recebido = 0.0
             
-            # Renderização dos Quadrinhos de Layout (Atualizado para 5 colunas)
+            # Renderização dos Quadrinhos de Layout (Organizado em 5 colunas)
             c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
                 st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Alunos Ativos</span><br><h2 style='margin:0;'>{ativos}</h2></div>", unsafe_allow_html=True)
             with c2:
                 st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Faturamento Esperado</span><br><h2 style='margin:0;color:#D4AF37;'>R$ {entradas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Já Recebido (Alunos)</span><br><h2 style='margin:0;color:#28a745;'>R$ {ja_recebido:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box-green'><span style='color:#aaa;font-size:13px;'>Já Recebido (Alunos)</span><br><h2 style='margin:0;color:#28a745;'>R$ {ja_recebido:,.2f}</h2></div>", unsafe_allow_html=True)
             with c4:
                 st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;font-size:13px;'>Saídas (Fluxo)</span><br><h2 style='margin:0;color:#FF4B4B;'>R$ {saidas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c5:
