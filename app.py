@@ -26,12 +26,12 @@ st.markdown("""
 # URL Base estrita do seu Google Sheets para exportação de CSV
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# MAPEAMENTO REAL E RIGOROSO DOS GIDS ENVIADOS POR VOCÊ
+# MAPEAMENTO DOS GIDS DAS SUAS ABAS REALMENTE CONFERIDAS
 GIDS = {
     "Cadastro_Alunos": "896837375",
     "Historico_Bioimpedancia": "736167025",
-    "Controle_Financeiro": "266431932",
-    "Fluxo_Caixa_Geral": "1156715922",
+    "Controle_Financeiro": "266431932",   # <--- ENTRADAS (RECEITAS)
+    "Fluxo_Caixa_Geral": "1156715922",     # <--- SAÍDAS (GASTOS)
     "Prescricao_Treinos": "181621672",
     "Agendamento_Aulas": "1168521543"
 }
@@ -43,7 +43,7 @@ def carregar_dados_aba(nome_aba):
         df = pd.read_csv(url_completa)
         df = df.dropna(how='all')
         
-        # Limpeza cirúrgica de cabeçalhos (remove espaços, asteriscos e poeira textual)
+        # Limpeza de cabeçalhos contra poeira textual
         df.columns = df.columns.astype(str).str.replace(r'\\', '', regex=True).str.replace('*', '', regex=False).str.strip()
         df.columns = df.columns.str.replace(' ', '_', regex=False)
         return df
@@ -53,18 +53,30 @@ def carregar_dados_aba(nome_aba):
 
 # --- CARREGAMENTO ISOLADO DE CADA TABELA ---
 df_alunos = carregar_dados_aba("Cadastro_Alunos")
-df_financeiro = carregar_dados_aba("Controle_Financeiro")
+df_financeiro = carregar_dados_aba("Controle_Financeiro") # Entradas
+df_fluxo_caixa = carregar_dados_aba("Fluxo_Caixa_Geral")    # Saídas
 df_agenda = carregar_dados_aba("Agendamento_Aulas")
 df_treinos = carregar_dados_aba("Prescricao_Treinos")
 df_bio = carregar_dados_aba("Historico_Bioimpedancia")
 
-# Tratamento Numérico Seguro do Financeiro
-col_valor = 'Valor_Cobrado' if 'Valor_Cobrado' in df_financeiro.columns else ('Valor' if 'Valor' in df_financeiro.columns else None)
-if not df_financeiro.empty and col_valor:
-    df_financeiro['Valor_Num'] = df_financeiro[col_valor].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
-else:
-    if not df_financeiro.empty:
-        df_financeiro['Valor_Num'] = 0.0
+def tratar_coluna_numerica(df, possíveis_colunas):
+    """Transforma colunas de texto monetário (R$ 150,00) em float limpo para cálculo"""
+    if df.empty:
+        return pd.Series(dtype=float)
+    col_encontrada = None
+    for col in possíveis_colunas:
+        if col in df.columns:
+            col_encontrada = col
+            break
+    if col_encontrada:
+        return df[col_encontrada].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
+    return pd.Series([0.0] * len(df))
+
+# Tratamento Numérico Seguro de Entradas (Receitas)
+df_financeiro['Valor_Num'] = tratar_coluna_numerica(df_financeiro, ['Valor_Cobrado', 'Valor', 'Preco'])
+
+# Tratamento Numérico Seguro de Saídas (Gastos no Fluxo de Caixa)
+df_fluxo_caixa['Valor_Num'] = tratar_coluna_numerica(df_fluxo_caixa, ['Valor_Pago', 'Valor', 'Saida', 'Gasto'])
 
 # --- NAVEGAÇÃO LATERAL ---
 st.sidebar.title("🏆 Team Muniz Hub")
@@ -87,23 +99,29 @@ if perfil == "👑 Painel do Treinador":
         )
         
         # -------------------------------------------------------------
-        # MÓDULO 1: DASHBOARD & CADASTRO
+        # MÓDULO 1: DASHBOARD & CADASTRO (Cálculos de Balanço Corrigidos)
         # -------------------------------------------------------------
         if menu == "📊 Dashboard & Cadastro":
             st.title("Indicadores e Perfis de Clientes")
             
-            # KPIs reais baseados nas abas corrigidas
+            # Contagens baseadas estritamente na nova regra de negócio orientada
             total_alunos_count = len(df_alunos) if not df_alunos.empty else 0
-            faturamento_total = df_financeiro['Valor_Num'].sum() if not df_financeiro.empty and 'Valor_Num' in df_financeiro.columns else 0.0
-            total_sessoes = len(df_agenda) if not df_agenda.empty else 0
             
-            c1, c2, c3 = st.columns(3)
+            entradas_totais = df_financeiro['Valor_Num'].sum() if not df_financeiro.empty else 0.0
+            saidas_totais = df_fluxo_caixa['Valor_Num'].sum() if not df_fluxo_caixa.empty else 0.0
+            saldo_liquido = entradas_totais - saidas_totais
+            
+            # Exibição dos KPIs macro do negócio
+            c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Alunos Cadastrados</span><br><h2>{total_alunos_count}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Alunos Ativos</span><br><h2>{total_alunos_count}</h2></div>", unsafe_allow_html=True)
             with c2:
-                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Faturamento Total</span><br><h2>R$ {faturamento_total:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:green;'>Entradas (Receitas)</span><br><h2>R$ {entradas_totais:,.2f}</h2></div>", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Total de Aulas Agendadas</span><br><h2>{total_sessoes}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:red;'>Saídas (Gastos)</span><br><h2>R$ {saidas_totais:,.2f}</h2></div>", unsafe_allow_html=True)
+            with c4:
+                cor_saldo = "cyan" if saldo_liquido >= 0 else "orange"
+                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Saldo Real Líquido</span><br><h2 style='color:{cor_saldo} !important;'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
             
             st.write("---")
             st.subheader("Filtro Individual de Aluno (Dados Cadastrais)")
@@ -124,78 +142,84 @@ if perfil == "👑 Painel do Treinador":
                     st.markdown(f"**Status no Sistema:** {dados_do_aluno.get('Status_Aluno', 'N/A')}")
             else:
                 st.warning("Aguardando leitura de dados válidos da aba de cadastro.")
-                if not df_alunos.empty:
-                    st.write("Colunas encontradas:", list(df_alunos.columns))
             
             st.write("---")
             with st.expander("Ver Planilha Completa de Cadastros"):
                 st.dataframe(df_alunos, use_container_width=True)
 
         # -------------------------------------------------------------
-        # MÓDULO 2: COBRANÇA & RECEITAS (CORRIGIDO)
+        # MÓDULO 2: COBRANÇA & RECEITAS
         # -------------------------------------------------------------
         elif menu == "💰 Cobrança & Receitas":
-            st.title("Gestão de Receitas (Gráfico Pizza e Filtros)")
+            st.title("Gestão de Receitas e Despesas (Fluxo)")
             
-            col_status = 'Status_Pagamento' if 'Status_Pagamento' in df_financeiro.columns else ('Status' if 'Status' in df_financeiro.columns else None)
+            tab_entradas, tab_saidas = st.tabs(["💰 Entradas (Receitas)", "📉 Saídas (Fluxo de Caixa / Gastos)"])
             
-            if not df_financeiro.empty and col_status and 'Valor_Num' in df_financeiro.columns:
-                # CORREÇÃO CRÍTICA DO PIE CHART: Transformando o agrupamento em um DataFrame estruturado
-                df_pizza = df_financeiro.groupby(col_status, as_index=False)['Valor_Num'].sum()
+            with tab_entradas:
+                col_status = 'Status_Pagamento' if 'Status_Pagamento' in df_financeiro.columns else ('Status' if 'Status' in df_financeiro.columns else None)
                 
-                st.write("### Divisão de Receitas por Categoria")
-                # Passando os nomes exatos das colunas de chaves e valores
-                st.pie_chart(df_pizza, themes=None, names=col_status, values='Valor_Num')
-                
-                st.write("---")
-                st.subheader("Relatórios Dinâmicos por Botão")
-                
-                col_b1, col_b2, col_b3 = st.columns(3)
-                filtro_financeiro = "Todos"
-                with col_b1:
-                    if st.button("Ver Apenas Cobranças Pendentes"): filtro_financeiro = "Pendente"
-                with col_b2:
-                    if st.button("Ver Apenas Mensalidades Pagas"): filtro_financeiro = "Pago"
-                with col_b3:
-                    if st.button("Redefinir Filtros (Ver Tudo)"): filtro_financeiro = "Todos"
-                
-                if filtro_financeiro != "Todos":
-                    df_exibicao_fin = df_financeiro[df_financeiro[col_status] == filtro_financeiro]
-                else:
-                    df_exibicao_fin = df_financeiro
+                if not df_financeiro.empty and col_status and 'Valor_Num' in df_financeiro.columns:
+                    st.write("### Divisão de Receitas por Categoria")
+                    df_pizza = df_financeiro.dropna(subset=[col_status]).groupby(col_status, as_index=False)['Valor_Num'].sum()
+                    try:
+                        st.pie_chart(df_pizza, theme=None, names=col_status, values='Valor_Num')
+                    except Exception:
+                        st.dataframe(df_pizza.rename(columns={col_status: 'Status', 'Valor_Num': 'Total (R$)'}), use_container_width=True)
                     
-                st.dataframe(df_exibicao_fin, use_container_width=True)
-                
-                # Central de Cobrança Automatizada via WhatsApp
-                st.write("---")
-                st.subheader("⚠️ Central de Mensagens Automáticas de Cobrança")
-                devedores = df_financeiro[df_financeiro[col_status].astype(str).str.contains('Pendente', na=False, case=False)]
-                
-                if not devedores.empty:
-                    for idx, row in devedores.iterrows():
-                        id_alvo = row.get('ID_Aluno')
-                        aluno_info = df_alunos[df_alunos['ID_Aluno'] == id_alvo] if not df_alunos.empty and 'ID_Aluno' in df_alunos.columns else pd.DataFrame()
+                    st.write("---")
+                    st.subheader("Filtros das Faturas de Alunos")
+                    col_b1, col_b2, col_b3 = st.columns(3)
+                    filtro_financeiro = "Todos"
+                    with col_b1:
+                        if st.button("Ver Apenas Cobranças Pendentes"): filtro_financeiro = "Pendente"
+                    with col_b2:
+                        if st.button("Ver Apenas Mensalidades Pagas"): filtro_financeiro = "Pago"
+                    with col_b3:
+                        if st.button("Redefinir Filtros (Ver Tudo)"): filtro_financeiro = "Todos"
+                    
+                    if filtro_financeiro != "Todos":
+                        df_exibicao_fin = df_financeiro[df_financeiro[col_status].astype(str).str.contains(filtro_financeiro, na=False, case=False)]
+                    else:
+                        df_exibicao_fin = df_financeiro
                         
-                        lbl_nome = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else 'Nome_Aluno'
-                        nome_aluno = row.get('Nome_Aluno', (aluno_info.iloc[0][lbl_nome] if not aluno_info.empty else "Aluno"))
-                        telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty and 'WhatsApp' in aluno_info.columns else ""
-                        val_txt = row.get('Valor_Cobrado', row.get('Valor', 'Mensalidade'))
-                        
-                        # Correção da variável 'telephone' para 'telefone' para evitar quebra futura
-                        if telefone and telefone != "nan":
-                            mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz ({val_txt}) está aberta. Caso já tenha realizado o pagamento, desconsidere! 💪"
-                            mensagem_codificada = urllib.parse.quote(mensagem)
-                            link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                    st.dataframe(df_exibicao_fin, use_container_width=True)
+                    
+                    # Central de Cobrança Automatizada via WhatsApp
+                    st.write("---")
+                    st.subheader("⚠️ Central de Mensagens Automáticas de Cobrança")
+                    devedores = df_financeiro[df_financeiro[col_status].astype(str).str.contains('Pendente', na=False, case=False)]
+                    
+                    if not devedores.empty:
+                        for idx, row in devedores.iterrows():
+                            id_alvo = row.get('ID_Aluno')
+                            aluno_info = df_alunos[df_alunos['ID_Aluno'] == id_alvo] if not df_alunos.empty and 'ID_Aluno' in df_alunos.columns else pd.DataFrame()
                             
-                            col_txt, col_btn = st.columns([4, 1])
-                            with col_txt:
-                                        st.write(f"🔴 **{nome_aluno}** - Fatura Pendente de {val_txt}.")
-                            with col_btn:
-                                st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+                            lbl_nome = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else 'Nome_Aluno'
+                            nome_aluno = row.get('Nome_Aluno', (aluno_info.iloc[0][lbl_nome] if not aluno_info.empty else "Aluno"))
+                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty and 'WhatsApp' in aluno_info.columns else ""
+                            val_txt = row.get('Valor_Cobrado', row.get('Valor', 'Mensalidade'))
+                            
+                            if telefone and telefone != "nan" and telefone != "":
+                                mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz ({val_txt}) está aberta. Caso já tenha realizado o pagamento, desconsidere! 💪"
+                                mensagem_codificada = urllib.parse.quote(mensagem)
+                                link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                                
+                                col_txt, col_btn = st.columns([4, 1])
+                                with col_txt:
+                                    st.write(f"🔴 **{nome_aluno}** - Fatura Pendente de {val_txt}.")
+                                with col_btn:
+                                    st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+                    else:
+                        st.success("Tudo em dia! Nenhuma cobrança pendente identificada.")
                 else:
-                    st.success("Tudo em dia! Nenhuma cobrança pendente identificada.")
-            else:
-                st.info("Aba de controle financeiro vazia ou sem colunas de Status/Valores.")
+                    st.info("Aba de controle financeiro vazia ou sem colunas compatíveis.")
+            
+            with tab_saidas:
+                st.write("### Histórico e Lançamento de Gastos (Fluxo de Caixa)")
+                if not df_fluxo_caixa.empty:
+                    st.dataframe(df_fluxo_caixa, use_container_width=True)
+                else:
+                    st.info("Nenhum registro de gasto/saída encontrado na aba do Fluxo de Caixa ainda.")
 
         # -------------------------------------------------------------
         # MÓDULO 3: AGENDA DE ATENDIMENTOS
