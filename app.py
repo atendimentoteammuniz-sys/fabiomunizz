@@ -1,208 +1,266 @@
 import streamlit as st
 import pandas as pd
+import urllib.parse
 
 # Configuração da página do aplicativo
 st.set_page_config(
-    page_title="Team Muniz - Dashboard",
-    page_icon="💪",
+    page_title="Team Muniz - Sistema de Gestão",
+    page_icon="🏆",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Estilização Premium (Preto e Dourado)
+# Estilização Visual Premium (Preto de fundo e detalhes em Dourado)
 st.markdown("""
     <style>
-    .main { background-color: #111111; color: #FFFFFF; }
-    .sidebar .sidebar-content { background-color: #1A1A1A; }
-    h1, h2, h3 { color: #D4AF37 !important; }
+    .main { background-color: #0e0e0e; color: #FFFFFF; }
+    .sidebar .sidebar-content { background-color: #161616; }
+    h1, h2, h3 { color: #D4AF37 !important; font-family: 'Helvetica', sans-serif; }
     div.stButton > button:first-child {
-        background-color: #D4AF37; color: #111111; font-weight: bold; border-radius: 5px;
+        background-color: #D4AF37; color: #000000; font-weight: bold; border-radius: 6px; width: 100%;
     }
+    .kpi-box { background-color: #1c1c1c; padding: 20px; border-radius: 8px; border-left: 4px solid #D4AF37; }
     </style>
     """, unsafe_allow_html=True)
 
-# URL base pública da sua planilha
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# GIDs OFICIAIS mapeados diretamente dos links fornecidos por você
 GIDS = {
-    "Cadastro_Alunos": "896837375",
-    "Historico_Bioimpedancia": "736167025",
-    "Controle_Financeiro": "266431932",
-    "Fluxo_Caixa_Geral": "1156715922",
-    "Prescricao_Treinos": "181621672",
-    "Agendamento_Aulas": "1168521543"
+    "Cadastro_Alunos": "1168521543",
+    "Controle_Financeiro": "439294975",
+    "Agendamento_Aulas": "1486576823",
+    "Historico_Bioimpedancia": "2134988451",
+    "Prescricao_Treinos": "1619478144",
+    "Fluxo_Caixa_Geral": "1809059737"
 }
 
-def carregar_e_limpar_aba(nome_aba):
-    url = URL_BASE + GIDS[nome_aba]
+def carregar_dados(aba_nome):
+    url = URL_BASE + GIDS[aba_nome]
     try:
-        # Lê a aba e força todas as colunas a serem tratadas como texto limpo
-        df = pd.read_csv(url, dtype=str)
+        df = pd.read_csv(url)
         df = df.dropna(how='all')
-        
-        # Padroniza os cabeçalhos: remove espaços e joga para maiúsculo
-        df.columns = df.columns.astype(str).str.strip().str.upper()
-        
-        # Limpa espaços em branco de todas as células do dataframe
-        for col in df.columns:
-            df[col] = df[col].astype(str).str.strip()
-            
+        df.columns = df.columns.astype(str).str.replace(r'\\', '', regex=True).str.replace('*', '', regex=False).str.strip()
         return df
     except Exception as e:
-        st.error(f"Erro de comunicação com a tabela '{nome_aba}': {e}")
         return pd.DataFrame()
 
-# --- MENU LATERAL DE NAVEGAÇÃO ---
-st.sidebar.title("🏆 Team Muniz App")
+# --- CARGA GLOBAL DAS ABAS ---
+df_alunos = carregar_dados("Cadastro_Alunos")
+df_financeiro = carregar_dados("Controle_Financeiro")
+df_agenda = carregar_dados("Agendamento_Aulas")
+df_treinos = carregar_dados("Prescricao_Treinos")
+df_bio = carregar_dados("Historico_Bioimpedancia")
+
+# Tratamento Numérico Financeiro
+if not df_financeiro.empty and 'Valor_Cobrado' in df_financeiro.columns:
+    df_financeiro['Valor_Num'] = df_financeiro['Valor_Cobrado'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
+else:
+    df_financeiro['Valor_Num'] = 0.0
+
+# --- SEGURANÇA E SEPARAÇÃO DE PERFIS NO MENU LATERAL ---
+st.sidebar.title("🏆 Team Muniz Hub")
 st.sidebar.write("---")
-perfil = st.sidebar.radio("Escolha o Perfil:", ["👑 Treinador (Fábio)", "🏃 Área do Aluno"])
 
-# Carregamento global e centralizado das tabelas limpas
-base_cad = carregar_e_limpar_aba("Cadastro_Alunos")
-base_fin = carregar_e_limpar_aba("Controle_Financeiro")
-base_age = carregar_e_limpar_aba("Agendamento_Aulas")
-base_tre = carregar_e_limpar_aba("Prescricao_Treinos")
-base_bio = carregar_e_limpar_aba("Historico_Bioimpedancia")
+perfil = st.sidebar.radio("Selecione o Portal de Acesso:", ["🏃 Portal do Aluno", "👑 Painel do Treinador"])
 
 # =====================================================================
-# 👑 PAINEL DO TREINADOR (FÁBIO MUNIZ)
+# 👑 PORTAL DO TREINADOR (FÁBIO) - PROTEGIDO POR SENHA
 # =====================================================================
-if perfil == "👑 Treinador (Fábio)":
-    st.title("Painel de Controle Executivo")
+if perfil == "👑 Painel do Treinador":
+    st.sidebar.write("---")
+    senha_treinador = st.sidebar.text_input("Chave de Acesso do Treinador:", type="password")
     
-    menu_treinador = st.sidebar.selectbox(
-        "Gerenciar Módulo:", 
-        ["📊 Dashboard Geral", "💰 Financeiro Detalhado", "📅 Agenda de Atendimentos", "🏋️ Prescrição de Treinos"]
-    )
-    
-    # -----------------------------------------------------------------
-    # MÓDULO 1: DASHBOARD GERAL
-    # -----------------------------------------------------------------
-    if menu_treinador == "📊 Dashboard Geral":
-        st.subheader("Indicadores Operacionais em Tempo Real")
+    # Defina sua senha pessoal aqui (Exemplo: "muniz2026")
+    if senha_treinador == "muniz2026":
+        st.sidebar.success("Acesso Autorizado!")
         
-        # Cálculo de Faturamento puramente numérico
-        faturamento = 0.0
-        if not base_fin.empty and 'VALOR_COBRADO' in base_fin.columns:
-            base_fin['VAL_NUM'] = base_fin['VALOR_COBRADO'].str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
-            faturamento = base_fin['VAL_NUM'].sum()
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            total_alunos = len(base_cad[base_cad['ID_ALUNO'].str.contains('ALU', na=False, case=False)]) if not base_cad.empty and 'ID_ALUNO' in base_cad.columns else 0
-            st.metric("Alunos Cadastrados (Total)", total_alunos)
-        with col2:
-            st.metric("Faturamento Previsto", f"R$ {faturamento:,.2f}")
-        with col3:
-            total_aulas = len(base_age[base_age['ID_AGENDAMENTO'].str.contains('AGE', na=False, case=False)]) if not base_age.empty and 'ID_AGENDAMENTO' in base_age.columns else 0
-            st.metric("Total de Aulas Agendadas", total_aulas)
-            
-        st.write("---")
-        st.subheader("Visualização Cadastral Primária (Base de Alunos Ativos)")
-        if not base_cad.empty:
-            st.dataframe(base_cad, use_container_width=True)
-        else:
-            st.warning("Aguardando dados da aba 'Cadastro_Alunos'.")
-
-    # -----------------------------------------------------------------
-    # MÓDULO 2: FINANCEIRO DETALHADO
-    # -----------------------------------------------------------------
-    elif menu_treinador == "💰 Financeiro Detalhado":
-        st.subheader("Gestão de Receitas & Cobranças")
+        menu = st.sidebar.selectbox(
+            "Selecione o Módulo Administrativo:",
+            ["📊 Dashboard & Cadastro", "💰 Cobrança & Receitas", "📅 Organização da Agenda", "🏋️ Central de Exercícios"]
+        )
         
-        if not base_fin.empty and 'VALOR_COBRADO' in base_fin.columns:
-            base_fin['VAL_NUM'] = base_fin['VALOR_COBRADO'].str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
+        # -------------------------------------------------------------
+        # MÓDULO: DASHBOARD & CADASTRO
+        # -------------------------------------------------------------
+        if menu == "📊 Dashboard & Cadastro":
+            st.title("Indicadores e Perfis de Clientes")
             
-            if 'STATUS_PAGAMENTO' in base_fin.columns:
-                resumo_grafico = base_fin.groupby('STATUS_PAGAMENTO')['VAL_NUM'].sum()
-                st.bar_chart(resumo_grafico)
+            # Cards de Performance Superior
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Alunos Ativos</span><br><h2>{len(df_alunos)}</h2></div>", unsafe_allow_html=True)
+            with c2:
+                faturamento = df_financeiro['Valor_Num'].sum()
+                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Faturamento de Maio</span><br><h2>R$ {faturamento:,.2f}</h2></div>", unsafe_allow_html=True)
+            with c3:
+                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Sessões Agendadas</span><br><h2>{len(df_agenda)}</h2></div>", unsafe_allow_html=True)
             
             st.write("---")
-            st.dataframe(base_fin, use_container_width=True)
-        else:
-            st.info("Nenhum dado financeiro estruturado encontrado.")
-
-    # -----------------------------------------------------------------
-    # MÓDULO 3: AGENDA DE ATENDIMENTOS
-    # -----------------------------------------------------------------
-    elif menu_treinador == "📅 Agenda de Atendimentos":
-        st.subheader("Cronograma de Aulas Semanais")
-        
-        if not base_age.empty:
-            if 'DATA_AULA' in base_age.columns:
-                dias_semana = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"]
-                dia_filtro = st.selectbox("Filtrar por Dia da Semana:", ["Todos"] + dias_semana)
-                
-                if dia_filtro != "Todos":
-                    agenda_filtrada = base_age[base_age['DATA_AULA'].str.lower() == dia_filtro.lower()]
-                else:
-                    agenda_filtrada = base_age
-                st.dataframe(agenda_filtrada, use_container_width=True)
-            else:
-                st.dataframe(base_age, use_container_width=True)
-        else:
-            st.info("Nenhum agendamento encontrado.")
-
-    # -----------------------------------------------------------------
-    # MÓDULO 4: PRESCRIÇÃO DE TREINOS
-    # -----------------------------------------------------------------
-    elif menu_treinador == "🏋️ Prescrição de Treinos":
-        st.subheader("Central Técnico de Exercícios")
-        
-        if not base_cad.empty and 'ID_ALUNO' in base_cad.columns and 'NOME_ALUNO' in base_cad.columns:
-            base_cad['SELECAO'] = base_cad['ID_ALUNO'] + " - " + base_cad['NOME_ALUNO']
-            aluno_selecionado = st.selectbox("Selecione o Aluno para puxar a Ficha:", base_cad['SELECAO'].tolist())
+            st.subheader("Filtro Individual de Aluno (Dados Cadastrais)")
             
-            id_aluno_alvo = aluno_selecionado.split(" - ")[0].strip().upper()
-            st.write(f"Filtrando treinos para o ID: **{id_aluno_alvo}**")
+            aluno_selecionado = st.selectbox("Selecione o Aluno para Ver a Ficha Cadastral:", df_alunos['Nome_Completo'].tolist())
+            dados_do_aluno = df_alunos[df_alunos['Nome_Completo'] == aluno_selecionado].iloc[0]
             
-            if not base_tre.empty and 'ID_ALUNO' in base_tre.columns:
-                treino_filtrado = base_tre[base_tre['ID_ALUNO'].str.upper() == id_aluno_alvo]
+            # Card Customizado com as infos do aluno escolhido
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(f"**Código de Identificação:** {dados_do_aluno['ID_Aluno']}")
+                st.markdown(f"**WhatsApp:** {dados_do_aluno['WhatsApp']}")
+            with col_b:
+                st.markdown(f"**Modalidade Contratada:** {dados_do_aluno['Modalidade']}")
+                st.markdown(f"**Status no Sistema:** {dados_do_aluno['Status_Aluno']}")
                 
-                if treino_filtrado.empty:
-                    st.info(f"Nenhum exercício vinculado ao ID {id_aluno_alvo} na planilha.")
-                else:
-                    st.dataframe(treino_filtrado, use_container_width=True)
+            st.write("---")
+            with st.expander("Ver Planilha Completa de Cadastros"):
+                st.dataframe(df_alunos, use_container_width=True)
+
+        # -------------------------------------------------------------
+        # MÓDULO: COBRANÇA & RECEITAS
+        # -------------------------------------------------------------
+        elif menu == "💰 Cobrança & Receitas":
+            st.title("Gestão de Receitas (Gráfico Pizza e Filtros)")
+            
+            # Gráfico de Pizza de faturamento por status
+            if 'Status_Pagamento' in df_financeiro.columns:
+                resumo_pizza = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
+                st.write("### Divisão de Receitas por Categoria")
+                st.pie_chart(resumo_pizza)
+            
+            st.write("---")
+            st.subheader("Relatórios Dinâmicos por Botão")
+            
+            # Filtros por botões horizontais
+            col_b1, col_b2, col_b3 = st.columns(3)
+            filtro_financeiro = "Todos"
+            with col_b1:
+                if st.button("Ver Apenas Cobranças Pendentes"): filtro_financeiro = "Pendente"
+            with col_b2:
+                if st.button("Ver Apenas Mensalidades Pagas"): filtro_financeiro = "Pago"
+            with col_b3:
+                if st.button("Redefinir Filtros (Ver Tudo)"): filtro_financeiro = "Todos"
+            
+            if filtro_financeiro != "Todos":
+                df_exibicao_fin = df_financeiro[df_financeiro['Status_Pagamento'] == filtro_financeiro]
             else:
-                st.warning("Tabela de Prescrição de Treinos sem coluna 'ID_ALUNO' ou vazia.")
+                df_exibicao_fin = df_financeiro
+                
+            st.dataframe(df_exibicao_fin[['ID_Lancamento', 'ID_Aluno', 'Nome_Aluno', 'Mes_Referencia', 'Valor_Cobrado', 'Status_Pagamento']], use_container_width=True)
+            
+            # Central de Automação de WhatsApp para devedores
+            st.write("---")
+            st.subheader("⚠️ Central de Mensagens Automáticas de Cobrança")
+            
+            devedores = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pendente']
+            
+            if not devedores.empty:
+                for idx, row in devedores.iterrows():
+                    # Localiza o celular do devedor batendo os IDs
+                    aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']]
+                    if not aluno_info.empty:
+                        telefone = str(aluno_info.iloc[0]['WhatsApp']).strip()
+                        nome_aluno = row['Nome_Aluno']
+                        valor = row['Valor_Cobrado']
+                        
+                        # Texto elegante de cobrança da assessoria
+                        mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz ({valor}) está aberta. Caso já tenha realizado o pagamento, desconsidere! 💪"
+                        mensagem_codificada = urllib.parse.quote(mensagem)
+                        
+                        # Link da API Oficial do Zap
+                        link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                        
+                        col_nome, col_link = st.columns([4, 1])
+                        with col_nome:
+                            st.write(f"🔴 **{nome_aluno}** possui fatura pendente de {valor}.")
+                        with col_link:
+                            st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+            else:
+                st.success("Sensacional! Nenhum aluno com pendência financeira ativa.")
+
+        # -------------------------------------------------------------
+        # MÓDULO: AGENDA DE ATENDIMENTOS (Agrupados por Botão Expandível)
+        # -------------------------------------------------------------
+        elif menu == "📅 Organização da Agenda":
+            st.title("Agenda de Atendimentos Presenciais")
+            
+            # Divisão por Grupos Técnicos das Categorias
+            tipo_agenda = st.radio("Selecione a Modalidade da Agenda:", ["Treinamento Fixo Individual", "Treinamento em Grupo"])
+            
+            if tipo_agenda == "Treinamento Fixo Individual":
+                df_filtrado_agenda = df_agenda[df_agenda['Observacoes_Agenda'] == 'Treino Fixo']
+            else:
+                df_filtrado_agenda = df_agenda[df_agenda['Observacoes_Agenda'] == 'Treino em Grupo']
+                
+            # Agrupamento por Botões (Expanders) por Aluno
+            if not df_filtrado_agenda.empty:
+                lista_alunos_agenda = df_filtrado_agenda['Nome_Aluno'].unique()
+                
+                for aluno in lista_alunos_agenda:
+                    with st.expander(f"👤 Ver Horários da Agenda de: {aluno}"):
+                        dados_agenda_aluno = df_filtrado_agenda[df_filtrado_agenda['Nome_Aluno'] == aluno]
+                        st.dataframe(dados_agenda_aluno[['ID_Agendamento', 'Data_Aula', 'Horario_Inicio', 'Horario_Fim', 'Status_Aula']], use_container_width=True)
+            else:
+                st.info("Nenhum horário registrado para esta modalidade.")
+
+        # -------------------------------------------------------------
+        # MÓDULO: PRESCRIÇÃO DE TREINOS
+        # -------------------------------------------------------------
+        elif menu == "🏋️ Central de Exercícios":
+            st.title("Fichas de Exercícios Técnicos")
+            
+            aluno_treino_sel = st.selectbox("Selecione o Aluno para Abrir a Ficha Tática:", df_alunos['Nome_Completo'].tolist())
+            id_aluno_sel = df_alunos[df_alunos['Nome_Completo'] == aluno_treino_sel]['ID_Aluno'].values[0]
+            
+            with st.expander(f"📂 Abrir Ficha Completa (ID: {id_aluno_sel})"):
+                if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
+                    treino_filtrado_muniz = df_treinos[df_treinos['ID_Aluno'] == id_aluno_sel]
+                    
+                    if treino_filtrado_muniz.empty or treino_filtrado_muniz['Nome_Exercicio'].isna().all():
+                        st.info("A ficha deste aluno está indexada, mas não há nenhum exercício (EXE) digitado nela ainda.")
+                    else:
+                        st.dataframe(treino_filtrado_muniz, use_container_width=True)
+    else:
+        st.sidebar.error("Chave incorreta. Digite a senha administrativa correta.")
 
 # =====================================================================
-# 🏃 PORTAL DO ALUNO (TEAM MUNIZ)
+# 🏃 PORTAL DO ALUNO - COMPACTO COM VALIDAÇÃO DE SEGURANÇA POR WHATSAPP
 # =====================================================================
-elif perfil == "🏃 Área do Aluno":
+elif perfil == "🏃 Portal do Aluno":
     st.title("Portal do Aluno - Team Muniz")
+    st.write("Insira suas credenciais de segurança fornecidas pela assessoria para liberar sua ficha de treinos.")
     
-    if not base_cad.empty and 'ID_ALUNO' in base_cad.columns:
-        if 'NOME_ALUNO' in base_cad.columns:
-            base_cad['SELECAO'] = base_cad['ID_ALUNO'] + " - " + base_cad['NOME_ALUNO']
-            aluno_logado = st.selectbox("Selecione seu ID para acessar o portal:", base_cad['SELECAO'].tolist())
-            id_aluno_puro = aluno_logado.split(" - ")[0].strip().upper()
-        else:
-            id_aluno_puro = st.selectbox("Selecione seu ID de Aluno:", base_cad['ID_ALUNO'].tolist())
+    # Validação dupla de segurança
+    input_id = st.text_input("Digite seu Código de Acesso (ID Aluno):", placeholder="Ex: ALU001")
+    input_tel = st.text_input("Digite seu Telefone Cadastrado (Apenas números com DDD):", placeholder="Ex: 5511999999999")
+    
+    if input_id and input_tel:
+        # Busca na planilha se existe um aluno com esse ID e esse número exato
+        aluno_validado = df_alunos[(df_alunos['ID_Aluno'].astype(str) == input_id.strip()) & (df_alunos['WhatsApp'].astype(str) == input_tel.strip())]
+        
+        if not aluno_validado.empty:
+            nome_aluno_logado = aluno_validado.iloc[0]['Nome_Completo']
+            st.success(f"Bem-vindo de volta, {nome_aluno_logado}!")
             
-        st.write(f"Acessando dados do ID: **{id_aluno_puro}**")
-        
-        # Criação das Abas com a Bioimpedância reativada
-        tab_t, tab_e, tab_f = st.tabs(["🏋️ Meu Treino", "📈 Minha Evolução", "💳 Meu Financeiro"])
-        
-        with tab_t:
-            if not base_tre.empty and 'ID_ALUNO' in base_tre.columns:
-                treino_aluno = base_tre[base_tre['ID_ALUNO'].str.upper() == id_aluno_puro]
-                st.dataframe(treino_aluno, use_container_width=True)
-            else:
-                st.info("Nenhuma ficha de treino disponível no momento.")
-                
-        with tab_e:
-            if not base_bio.empty and 'ID_ALUNO' in base_bio.columns:
-                bio_aluno = base_bio[base_bio['ID_ALUNO'].str.upper() == id_aluno_puro]
-                st.dataframe(bio_aluno, use_container_width=True)
-            else:
-                st.info("Nenhum histórico de evolução ou bioimpedância registrado para este ID.")
-                            
-        with tab_f:
-            if not base_fin.empty and 'ID_ALUNO' in base_fin.columns:
-                fin_aluno = base_fin[base_fin['ID_ALUNO'].str.upper() == id_aluno_puro]
-                st.dataframe(fin_aluno, use_container_width=True)
-            else:
-                st.info("Histórico financeiro não encontrado para este ID.")
+            t_treino, t_evolucao, t_fin = st.tabs(["🏋️ Minha Ficha de Exercícios", "📈 Minha Evolução Física", "💳 Meu Financeiro"])
+            
+            with t_treino:
+                st.subheader("Treino do Dia")
+                if not df_treinos.empty:
+                    treino_aluno = df_treinos[df_treinos['ID_Aluno'] == input_id.strip()].dropna(subset=['Nome_Exercicio'])
+                    if not treino_aluno.empty:
+                        st.dataframe(treino_aluno[['Divisao_Treino', 'Grupo_Muscular', 'Nome_Exercicio', 'Series', 'Repeticoes', 'Descanso', 'Link_Video_Execucao', 'Observacoes_Tecnicas']], use_container_width=True)
+                    else:
+                        st.info("Seu plano tático de treino está sendo montado pela equipe Team Muniz!")
+                        
+            with t_evolucao:
+                st.subheader("Histórico de Avaliações")
+                if not df_bio.empty:
+                    bio_aluno = df_bio[df_bio['ID_Aluno'] == input_id.strip()]
+                    st.dataframe(bio_aluno, use_container_width=True)
+                    
+            with t_fin:
+                st.subheader("Minhas Mensalidades")
+                if not df_financeiro.empty:
+                    fin_aluno = df_financeiro[df_financeiro['ID_Aluno'] == input_id.strip()]
+                    st.dataframe(fin_aluno[['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento']], use_container_width=True)
+        else:
+            st.error("Credenciais de segurança não coincidem. Verifique o ID ou o Telefone digitado.")
