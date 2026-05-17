@@ -121,7 +121,7 @@ if perfil == "👑 Painel do Treinador":
         )
         
         # -------------------------------------------------------------
-        # MÓDULO 1: DASHBOARD GERAL (Com Alerta de Vencidos Dinâmico)
+        # MÓDULO 1: DASHBOARD GERAL
         # -------------------------------------------------------------
         if menu == "📊 Dashboard Geral":
             st.title("Dashboard de Controle Financeiro e Operacional")
@@ -132,17 +132,25 @@ if perfil == "👑 Painel do Treinador":
             saidas = df_caixa['Saida_Num'].sum() if not df_caixa.empty else 0.0
             saldo_liquido = entradas - saidas
             
-            # Renderização dos Quadrinhos de Layout
-            c1, c2, c3, c4 = st.columns(4)
+            # Cálculo específico do valor já recebido dos alunos (Status == Pago)
+            if not df_financeiro.empty and coluna_status_fin in df_financeiro.columns:
+                ja_recebido = df_financeiro[df_financeiro[coluna_status_fin] == 'Pago']['Valor_Num'].sum()
+            else:
+                ja_recebido = 0.0
+            
+            # Renderização dos Quadrinhos de Layout (Atualizado para 5 colunas)
+            c1, c2, c3, c4, c5 = st.columns(5)
             with c1:
-                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Alunos Ativos</span><br><h2 style='margin:0;'>{ativos}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Alunos Ativos</span><br><h2 style='margin:0;'>{ativos}</h2></div>", unsafe_allow_html=True)
             with c2:
-                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Entradas (Receitas)</span><br><h2 style='margin:0;color:#D4AF37;'>R$ {entradas:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Faturamento Esperado</span><br><h2 style='margin:0;color:#D4AF37;'>R$ {entradas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;font-size:14px;'>Saídas (Fluxo)</span><br><h2 style='margin:0;color:#FF4B4B;'>R$ {saidas:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Já Recebido (Alunos)</span><br><h2 style='margin:0;color:#28a745;'>R$ {ja_recebido:,.2f}</h2></div>", unsafe_allow_html=True)
             with c4:
+                st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;font-size:13px;'>Saídas (Fluxo)</span><br><h2 style='margin:0;color:#FF4B4B;'>R$ {saidas:,.2f}</h2></div>", unsafe_allow_html=True)
+            with c5:
                 cor_saldo = "#D4AF37" if saldo_liquido >= 0 else "#FF4B4B"
-                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Saldo Real Líquido</span><br><h2 style='margin:0;color:{cor_saldo};'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:13px;'>Saldo Real Líquido</span><br><h2 style='margin:0;color:{cor_saldo};'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
             
             st.write("---")
             st.subheader("📲 Central de Mensagens e Cobranças Ativas")
@@ -167,14 +175,14 @@ if perfil == "👑 Painel do Treinador":
                                 if vencimento_data < hoje:
                                     esta_vencido = True
                             except:
-                                esta_vencido = False # Caso o formato de data falhe, joga na lista normal
+                                esta_vencido = False
                         
                         if esta_vencido:
                             vencidos_lista.append(row)
                         else:
                             a_vencer_lista.append(row)
                     
-                    # 🔴 BLOCO 1: EXCLUSIVO PARA ALUNOS JÁ VENCIDOS (ALERTA VISUAL RÁPIDO)
+                    # 🔴 BLOCO 1: ALUNOS JÁ VENCIDOS
                     if vencidos_lista:
                         st.error("🚨 ALERTA: ALUNOS COM MENSALIDADE VENCIDA")
                         for row in vencidos_lista:
@@ -184,7 +192,8 @@ if perfil == "👑 Painel do Treinador":
                             vencimento = row['Data_Vencimento']
                             valor = row[coluna_valor_fin]
                             
-                            mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
+                            # MENSAGEM DO PIX FORMATADA
+                            mensagem = f"Olá, {nome_aluno}! Tudo bem?\nPassando para lembrar que a mensalidade da sua consultoria Team Muniz, vencida em {vencimento} no valor de {valor}, ainda está pendente.\nPeço, por gentileza, que verifique assim que possível para evitar qualquer impacto no seu acompanhamento.\n🔑 Chave Pix: 40870201859\nQualquer dúvida, fico à disposição 💪"
                             mensagem_codificada = urllib.parse.quote(mensagem)
                             link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
                             
@@ -197,7 +206,7 @@ if perfil == "👑 Painel do Treinador":
                             st.markdown(f"[📩 Enviar Cobrança Urgente via WhatsApp]({link_whatsapp})")
                         st.write("---")
                     
-                    # 🟡 BLOCO 2: MENSALIDADES A VENCER / MÊS ATUAL
+                    # 🟡 BLOCO 2: MENSALIDADES A VENCER
                     if a_vencer_lista:
                         st.write("### 📅 Mensalidades em Aberto (A Vencer)")
                         for row in a_vencer_lista:
@@ -207,7 +216,8 @@ if perfil == "👑 Painel do Treinador":
                             vencimento = row['Data_Vencimento'] if 'Data_Vencimento' in row else "Mês Atual"
                             valor = row[coluna_valor_fin]
                             
-                            mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
+                            # MENSAGEM DO PIX FORMATADA
+                            mensagem = f"Olá, {nome_aluno}! Tudo bem?\nPassando para lembrar que a mensalidade da sua consultoria Team Muniz, vencida em {vencimento} no valor de {valor}, ainda está pendente.\nPeço, por gentileza, que verifique assim que possível para evitar qualquer impacto no seu acompanhamento.\n🔑 Chave Pix: 40870201859\nQualquer dúvida, fico à disposição 💪"
                             mensagem_codificada = urllib.parse.quote(mensagem)
                             link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
                             
