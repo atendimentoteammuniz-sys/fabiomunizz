@@ -24,12 +24,14 @@ st.markdown("""
 # URL base pública da sua planilha
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# Mapeamento estrito com os IDs das abas atuais da sua planilha
+# GIDs OFICIAIS mapeados diretamente dos links fornecidos por você
 GIDS = {
     "Cadastro_Alunos": "896837375",
-    "Controle_Financeiro": "1755100010",
-    "Agendamento_Aulas": "1419409890",
-    "Prescricao_Treinos": "1459524450"
+    "Historico_Bioimpedancia": "736167025",
+    "Controle_Financeiro": "266431932",
+    "Fluxo_Caixa_Geral": "1156715922",
+    "Prescricao_Treinos": "181621672",
+    "Agendamento_Aulas": "1168521543"
 }
 
 def carregar_e_limpar_aba(nome_aba):
@@ -61,6 +63,7 @@ base_cad = carregar_e_limpar_aba("Cadastro_Alunos")
 base_fin = carregar_e_limpar_aba("Controle_Financeiro")
 base_age = carregar_e_limpar_aba("Agendamento_Aulas")
 base_tre = carregar_e_limpar_aba("Prescricao_Treinos")
+base_bio = carregar_e_limpar_aba("Historico_Bioimpedancia")
 
 # =====================================================================
 # 👑 PAINEL DO TREINADOR (FÁBIO MUNIZ)
@@ -145,16 +148,13 @@ if perfil == "👑 Treinador (Fábio)":
     # MÓDULO 4: PRESCRIÇÃO DE TREINOS
     # -----------------------------------------------------------------
     elif menu_treinador == "🏋️ Prescrição de Treinos":
-        st.subheader("Central Técnica de Exercícios")
+        st.subheader("Central Técnico de Exercícios")
         
         if not base_cad.empty and 'ID_ALUNO' in base_cad.columns and 'NOME_ALUNO' in base_cad.columns:
-            # Cria uma lista de seleção exibindo o ID e o Nome do Aluno juntos
             base_cad['SELECAO'] = base_cad['ID_ALUNO'] + " - " + base_cad['NOME_ALUNO']
             aluno_selecionado = st.selectbox("Selecione o Aluno para puxar a Ficha:", base_cad['SELECAO'].tolist())
             
-            # Extrai apenas o ID puro da seleção
             id_aluno_alvo = aluno_selecionado.split(" - ")[0].strip().upper()
-            
             st.write(f"Filtrando treinos para o ID: **{id_aluno_alvo}**")
             
             if not base_tre.empty and 'ID_ALUNO' in base_tre.columns:
@@ -174,7 +174,6 @@ elif perfil == "🏃 Área do Aluno":
     st.title("Portal do Aluno - Team Muniz")
     
     if not base_cad.empty and 'ID_ALUNO' in base_cad.columns:
-        # Aluno faz "login" selecionando seu próprio ID/Nome
         if 'NOME_ALUNO' in base_cad.columns:
             base_cad['SELECAO'] = base_cad['ID_ALUNO'] + " - " + base_cad['NOME_ALUNO']
             aluno_logado = st.selectbox("Selecione seu ID para acessar o portal:", base_cad['SELECAO'].tolist())
@@ -184,7 +183,8 @@ elif perfil == "🏃 Área do Aluno":
             
         st.write(f"Acessando dados do ID: **{id_aluno_puro}**")
         
-        tab_t, tab_f = st.tabs(["🏋️ Meu Treino", "💳 Meu Financeiro"])
+        # Criação das Abas com a Bioimpedância reativada
+        tab_t, tab_e, tab_f = st.tabs(["🏋️ Meu Treino", "📈 Minha Evolução", "💳 Meu Financeiro"])
         
         with tab_t:
             if not base_tre.empty and 'ID_ALUNO' in base_tre.columns:
@@ -192,6 +192,13 @@ elif perfil == "🏃 Área do Aluno":
                 st.dataframe(treino_aluno, use_container_width=True)
             else:
                 st.info("Nenhuma ficha de treino disponível no momento.")
+                
+        with tab_e:
+            if not base_bio.empty and 'ID_ALUNO' in base_bio.columns:
+                bio_aluno = base_bio[base_bio['ID_ALUNO'].str.upper() == id_aluno_puro]
+                st.dataframe(bio_aluno, use_container_width=True)
+            else:
+                st.info("Nenhum histórico de evolução ou bioimpedância registrado para este ID.")
                             
         with tab_f:
             if not base_fin.empty and 'ID_ALUNO' in base_fin.columns:
