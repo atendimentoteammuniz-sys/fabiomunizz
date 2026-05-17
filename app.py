@@ -24,32 +24,25 @@ st.markdown("""
 # URL base pública da sua planilha
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# GIDs Estritos das suas abas coletados da planilha ativa
+# ATUALIZAÇÃO CRÍTICA: GIDs Reais extraídos diretamente da sua planilha ativa
 GIDS = {
-    "Cadastro_Alunos": "1168521543",
-    "Controle_Financeiro": "439294975",
-    "Agendamento_Aulas": "1486576823",
-    "Historico_Bioimpedancia": "2134988451",
-    "Prescricao_Treinos": "1619478144",
-    "Fluxo_Caixa_Geral": "1809059737"
+    "Cadastro_Alunos": "0",
+    "Controle_Financeiro": "1755100010",
+    "Agendamento_Aulas": "1419409890",
+    "Historico_Bioimpedancia": "107771764",
+    "Prescricao_Treinos": "1459524450",
+    "Fluxo_Caixa_Geral": "39682540"
 }
 
 def carregar_e_normalizar_aba(nome_aba):
     url = URL_BASE + GIDS[nome_aba]
     try:
-        # Força o pandas a ler tudo como texto inicialmente para evitar quebras
+        # Lê a aba como texto para evitar quebras de formatação
         df = pd.read_csv(url, dtype=str)
+        df = df.dropna(how='all') # Remove linhas fantasmas
         
-        # Remove linhas totalmente vazias
-        df = df.dropna(how='all')
-        
-        # SUPER BLINDAGEM DE CABEÇALHOS: Limpa espaços, asteriscos, barras e joga tudo para minúsculo
-        df.columns = (df.columns.astype(str)
-                      .str.replace(r'\\', '', regex=True)
-                      .str.replace('*', '', regex=False)
-                      .str.strip()
-                      .str.lower())
-        
+        # Limpa os nomes das colunas (remove espaços extras e joga para minúsculo para busca segura)
+        df.columns = df.columns.astype(str).str.strip().str.lower()
         return df
     except Exception as e:
         st.error(f"Erro de comunicação com a tabela '{nome_aba}': {e}")
@@ -71,7 +64,7 @@ if perfil == "👑 Treinador (Fábio)":
         ["📊 Dashboard Geral", "💰 Financeiro Detalhado", "📅 Agenda de Atendimentos", "🏋️ Prescrição de Treinos"]
     )
     
-    # Carregamento isolado e blindado das bases
+    # Carregamento dinâmico das bases
     base_cad = carregar_e_normalizar_aba("Cadastro_Alunos")
     base_fin = carregar_e_normalizar_aba("Controle_Financeiro")
     base_age = carregar_e_normalizar_aba("Agendamento_Aulas")
@@ -83,25 +76,23 @@ if perfil == "👑 Treinador (Fábio)":
     if menu_treinador == "📊 Dashboard Geral":
         st.subheader("Indicadores Operacionais em Tempo Real")
         
-        # Tratamento do faturamento usando busca por coluna normalizada (minúscula)
         faturamento = 0.0
         if not base_fin.empty:
-            col_valor = [c for c in base_fin.columns if 'valor' in c]
+            col_valor = [c for c in base_fin.columns if 'valor_cobrado' in c or 'valor' in c]
             if col_valor:
+                # Trata R$, pontos e vírgulas para somar corretamente
                 base_fin['val_num'] = base_fin[col_valor[0]].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
                 faturamento = base_fin['val_num'].sum()
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            # Conta apenas os IDs válidos de alunos (contendo alu)
-            col_id_aluno = [c for c in base_cad.columns if 'id_aluno' in c] if not base_cad.empty else []
+            col_id_aluno = [c for c in base_cad.columns if 'id_aluno' in c]
             total_alunos = len(base_cad[base_cad[col_id_aluno[0]].str.contains('ALU', na=False, case=False)]) if col_id_aluno else 0
             st.metric("Alunos Cadastrados (Total)", total_alunos)
         with col2:
             st.metric("Faturamento Previsto (Maio)", f"R$ {faturamento:,.2f}")
         with col3:
-            # Conta os agendamentos ativos válidos (contendo age)
-            col_id_age = [c for c in base_age.columns if 'id_agendamento' in c] if not base_age.empty else []
+            col_id_age = [c for c in base_age.columns if 'id_agendamento' in c]
             total_aulas = len(base_age[base_age[col_id_age[0]].str.contains('AGE', na=False, case=False)]) if col_id_age else 0
             st.metric("Total de Aulas Agendadas", total_aulas)
             
@@ -110,7 +101,7 @@ if perfil == "👑 Treinador (Fábio)":
         if not base_cad.empty:
             st.dataframe(base_cad, use_container_width=True)
         else:
-            st.warning("Sem dados cadastrais para exibir na planilha.")
+            st.warning("Aguardando carregamento da base de alunos.")
 
     # -----------------------------------------------------------------
     # MÓDULO 2: FINANCEIRO DETALHADO
@@ -119,8 +110,8 @@ if perfil == "👑 Treinador (Fábio)":
         st.subheader("Gestão de Receitas & Cobranças")
         
         if not base_fin.empty:
-            col_valor = [c for c in base_fin.columns if 'valor' in c]
-            col_status = [c for c in base_fin.columns if 'status' in c]
+            col_valor = [c for c in base_fin.columns if 'valor_cobrado' in c]
+            col_status = [c for c in base_fin.columns if 'status_pagamento' in c]
             
             if col_valor:
                 base_fin['val_num'] = base_fin[col_valor[0]].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
@@ -130,10 +121,10 @@ if perfil == "👑 Treinador (Fábio)":
                     st.bar_chart(resumo_grafico)
             
             st.write("---")
-            st.subheader("Lista de Cobranças Estruturadas")
+            st.subheader("Lista de Cobranças Estruturadas (Chave: ID_Lancamento)")
             st.dataframe(base_fin, use_container_width=True)
         else:
-            st.info("Aguardando preenchimento de lançamentos financeiros na planilha.")
+            st.info("Nenhum dado financeiro encontrado.")
 
     # -----------------------------------------------------------------
     # MÓDULO 3: AGENDA DE ATENDIMENTOS
@@ -142,7 +133,7 @@ if perfil == "👑 Treinador (Fábio)":
         st.subheader("Cronograma de Aulas Semanais")
         
         if not base_age.empty:
-            col_data = [c for c in base_age.columns if 'data' in c]
+            col_data = [c for c in base_age.columns if 'data_aula' in c]
             
             dias_semana = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"]
             dia_filtro = st.selectbox("Filtrar por Dia da Semana:", ["Todos"] + dias_semana)
@@ -154,7 +145,7 @@ if perfil == "👑 Treinador (Fábio)":
                 
             st.dataframe(agenda_filtrada, use_container_width=True)
         else:
-            st.info("Aguardando inserção de agendamentos de aulas na planilha.")
+            st.info("Nenhum agendamento ativo encontrado.")
 
     # -----------------------------------------------------------------
     # MÓDULO 4: PRESCRIÇÃO DE TREINOS
@@ -162,9 +153,9 @@ if perfil == "👑 Treinador (Fábio)":
     elif menu_treinador == "🏋️ Prescrição de Treinos":
         st.subheader("Central Técnica de Exercícios")
         
-        col_nome_cad = [c for c in base_cad.columns if 'nome' in c] if not base_cad.empty else []
+        col_nome_cad = [c for c in base_cad.columns if 'nome_completo' in c or 'nome' in c]
         
-        if col_nome_cad:
+        if col_nome_cad and not base_cad.empty:
             aluno_alvo = st.selectbox("Selecione o Aluno para puxar a Ficha:", base_cad[col_nome_cad[0]].tolist())
             
             col_id_cad = [c for c in base_cad.columns if 'id_aluno' in c]
@@ -172,18 +163,18 @@ if perfil == "👑 Treinador (Fábio)":
             
             st.write(f"Buscando exercícios vinculados ao código do aluno: **{id_aluno_alvo.upper()}**")
             
-            col_id_tre = [c for c in base_tre.columns if 'id_aluno' in c] if not base_tre.empty else []
+            col_id_tre = [c for c in base_tre.columns if 'id_aluno' in c]
             
-            if col_id_tre:
+            if col_id_tre and not base_tre.empty:
                 treino_filtrado = base_tre[base_tre[col_id_tre[0]].astype(str).str.strip().str.lower() == id_aluno_alvo.strip().lower()]
                 
-                col_nome_exe = [c for c in base_tre.columns if 'exercicio' in c or 'nome_ex' in c]
+                col_nome_exe = [c for c in base_tre.columns if 'nome_exercicio' in c or 'exercicio' in c]
                 if treino_filtrado.empty or (col_nome_exe and treino_filtrado[col_nome_exe[0]].isna().all()):
-                    st.info(f"O aluno está indexado corretamente, mas a tabela de exercícios (EXE) está vazia para ele na planilha.")
+                    st.info(f"O aluno está indexado, mas a tabela de exercícios (EXE) está vazia para ele.")
                 else:
                     st.dataframe(treino_filtrado, use_container_width=True)
             else:
-                st.warning("A aba de Prescrição de Treinos não pôde ser lida ou está sem colunas estruturadas.")
+                st.warning("A aba de Prescrição de Treinos está vazia ou desalinhada.")
 
 # =====================================================================
 # 🏃 PORTAL DO ALUNO (TEAM MUNIZ)
@@ -191,10 +182,9 @@ if perfil == "👑 Treinador (Fábio)":
 elif perfil == "🏃 Área do Aluno":
     st.title("Portal do Aluno - Team Muniz")
     
-    base_cad = carregar_e_normalizar_aba("Cadastro_Alunos")
-    col_nome_cad = [c for c in base_cad.columns if 'nome' in c] if not base_cad.empty else []
+    col_nome_cad = [c for c in base_cad.columns if 'nome_completo' in c or 'nome' in c]
     
-    if col_nome_cad:
+    if col_nome_cad and not base_cad.empty:
         aluno_logado = st.selectbox("Quem está acessando o portal?", base_cad[col_nome_cad[0]].dropna().tolist())
         col_id_cad = [c for c in base_cad.columns if 'id_aluno' in c]
         id_aluno_logado = base_cad[base_cad[col_nome_cad[0]] == aluno_logado][col_id_cad[0]].values[0]
@@ -204,7 +194,6 @@ elif perfil == "🏃 Área do Aluno":
         tab_t, tab_e, tab_f = st.tabs(["🏋️ Meu Treino", "📈 Minha Evolução", "💳 Meu Financeiro"])
         
         with tab_t:
-            base_tre = carregar_e_normalizar_aba("Prescricao_Treinos")
             col_id_tre = [c for c in base_tre.columns if 'id_aluno' in c] if not base_tre.empty else []
             if col_id_tre:
                 treino_aluno = base_tre[base_tre[col_id_tre[0]].astype(str).str.strip().str.lower() == id_aluno_logado.strip().lower()]
@@ -218,7 +207,6 @@ elif perfil == "🏃 Área do Aluno":
                 st.dataframe(bio_aluno, use_container_width=True)
                 
         with tab_f:
-            base_fin = carregar_e_normalizar_aba("Controle_Financeiro")
             col_id_fin = [c for c in base_fin.columns if 'id_aluno' in c] if not base_fin.empty else []
             if col_id_fin:
                 fin_aluno = base_fin[base_fin[col_id_fin[0]].astype(str).str.strip().str.lower() == id_aluno_logado.strip().lower()]
