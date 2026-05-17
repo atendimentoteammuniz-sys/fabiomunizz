@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-# 1. CONFIGURAÇÃO DA PÁGINA E INTERFACE PREMIUM
+# 1. CONFIGURAÇÃO DA PÁGINA E DESIGN PREMIUM
 st.set_page_config(
     page_title="Team Muniz - Dashboard",
     page_icon="💪",
@@ -22,8 +22,8 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. ESTRUTURA DE LINKS E CONEXÃO COM O GOOGLE SHEETS
-URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
+# 2. MOTOR DE CONEXÃO E LIMPEZA DE ENDPOINTS (API GOOGLE VISUALIZATION)
+URL_PLANILHA = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/gviz/tq?tqx=out:csv&gid="
 
 GIDS = {
     "Cadastro_Alunos": "1168521543",
@@ -34,44 +34,59 @@ GIDS = {
     "Fluxo_Caixa_Geral": "1809059737"
 }
 
-@st.cache_data(ttl=5) # Atualização rápida (5 segundos) para feedback imediato
-def puxar_e_saneamentos_de_dados(aba_nome):
-    url = URL_BASE + GIDS[aba_nome]
+@st.cache_data(ttl=2) # Atualização quase instantânea para digitação na planilha
+def carregar_e_higienizar_aba(aba_nome):
+    url = URL_PLANILHA + GIDS[aba_nome]
     try:
-        # Força o pandas a ler a planilha tratando tudo como texto inicialmente para evitar perda de zeros à esquerda
+        # Puxa os dados brutos da API do Google
         df = pd.read_csv(url, dtype=str)
         
-        # Elimina linhas completamente em branco da planilha
+        # Remove linhas completamente nulas jogadas pelo Sheets
         df = df.dropna(how='all')
         
-        # BRECHA CORRIGIDA: Limpeza profunda de cabeçalhos de colunas contra Markdown invasivo
-        df.columns = df.columns.astype(str).str.replace(r'\\', '', regex=True)
-        df.columns = df.columns.str.replace('*', '', regex=False)
-        df.columns = df.columns.str.strip()
+        # TRATAMENTO CRÍTICO DE CABEÇALHOS: Elimina \r, \n, asteriscos, barras e espaços invisíveis
+        df.columns = (
+            df.columns.astype(str)
+            .str.replace(r'[\r\n]', '', regex=True)
+            .str.replace(r'\\', '', regex=True)
+            .str.replace('*', '', regex=False)
+            .str.strip()
+        )
         
-        # BRECHA CORRIGIDA: Padronização de dados internos de identificação para evitar falhas de digitação
+        # TRATAMENTO CRÍTICO DE DADOS: Passa um pente fino em todas as células eliminando quebras de linha ocultas (\r)
         for col in df.columns:
-            if 'ID_' in col:
-                df[col] = df[col].astype(str).str.strip().str.upper()
-                
+            df[col] = df[col].astype(str).str.replace(r'[\r\n]', '', regex=True).str.strip()
+            
         return df
     except Exception as e:
-        st.error(f"Instabilidade técnica ao conectar com a tabela '{aba_nome}': {e}")
+        st.error(f"Erro de comunicação na aba '{aba_nome}': {e}")
         return pd.DataFrame()
 
-# 3. CARREGAMENTO OPERACIONAL DAS BASES DE DADOS
-df_alunos = puxar_e_saneamentos_de_dados("Cadastro_Alunos")
-df_financeiro = puxar_e_saneamentos_de_dados("Controle_Financeiro")
-df_agenda = puxar_e_saneamentos_de_dados("Agendamento_Aulas")
-df_treinos = puxar_e_saneamentos_de_dados("Prescricao_Treinos")
-df_bio = puxar_e_saneamentos_de_dados("Historico_Bioimpedancia")
-df_caixa = puxar_e_saneamentos_de_dados("Fluxo_Caixa_Geral")
+# 3. CARREGAMENTO DAS BASES HIGIENIZADAS
+df_alunos = carregar_e_higienizar_aba("Cadastro_Alunos")
+df_financeiro = carregar_e_higienizar_aba("Controle_Financeiro")
+df_agenda = carregar_e_higienizar_aba("Agendamento_Aulas")
+df_treinos = carregar_e_higienizar_aba("Prescricao_Treinos")
+df_bio = carregar_e_higienizar_aba("Historico_Bioimpedancia")
 
-# BRECHA CORRIGIDA: Conversão monetária segura tratando valores nulos ou strings inválidas
+# Mapeamento dinâmico para encontrar a coluna de ID do Aluno de forma flexível (independente de como foi escrita)
+def localizar_coluna_id(df):
+    for col in df.columns:
+        if col.lower() in ['id_aluno', 'alunoid', 'id aluno']:
+            return col
+    return None
+
+# Mapeamento dinâmico para encontrar a coluna de Nome do Aluno
+def localizar_coluna_nome(df):
+    for col in df.columns:
+        if col.lower() in ['nome_completo', 'nome_aluno', 'nome completo', 'nome aluno']:
+            return col
+    return None
+
+# Processamento numérico seguro do faturamento
 if not df_financeiro.empty and 'Valor_Cobrado' in df_financeiro.columns:
     df_financeiro['Valor_Num'] = (
         df_financeiro['Valor_Cobrado']
-        .fillna('0')
         .astype(str)
         .str.replace('R$', '', regex=False)
         .str.replace('.', '', regex=False)
@@ -82,13 +97,13 @@ if not df_financeiro.empty and 'Valor_Cobrado' in df_financeiro.columns:
 else:
     df_financeiro['Valor_Num'] = 0.0
 
-# 4. MENU DE CONTEXTO LATERAL
+# 4. PAINEL DE NAVEGAÇÃO LATERAL
 st.sidebar.title("🏆 Team Muniz App")
 st.sidebar.write("---")
 perfil = st.sidebar.radio("Selecione o Perfil de Entrada:", ["👑 Treinador (Fábio)", "🏃 Área do Aluno"])
 
 # ==========================================
-# 👑 INTERFACE DE GESTÃO: TREINADOR (FÁBIO)
+# 👑 VISÃO DO TREINADOR (FÁBIO)
 # ==========================================
 if perfil == "👑 Treinador (Fábio)":
     st.title("Painel de Controle Executivo")
@@ -98,139 +113,144 @@ if perfil == "👑 Treinador (Fábio)":
         ["📊 Dashboard Geral", "💰 Financeiro Detalhado", "📅 Agenda de Atendimentos", "🏋️ Prescrição de Treinos"]
     )
     
-    # MÓDULO: DASHBOARD GERAL
+    # 📊 FILTRO: DASHBOARD GERAL
     if menu_treinador == "📊 Dashboard Geral":
-        st.subheader("Indicadores de Desempenho do Negócio")
+        st.subheader("Indicadores Operacionais em Tempo Real")
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            total_alunos = len(df_alunos) if not df_alunos.empty else 0
-            st.metric("Alunos Ativos Base", total_alunos)
+            # Conta estritamente as linhas da aba Cadastro_Alunos
+            total_clientes = len(df_alunos) if not df_alunos.empty else 0
+            st.metric("Alunos Cadastrados (Total)", total_clientes)
         with col2:
-            faturamento_total = df_financeiro['Valor_Num'].sum() if 'Valor_Num' in df_financeiro.columns else 0.0
-            st.metric("Previsão de Receita Mensal", f"R$ {faturamento_total:,.2f}")
+            # Soma real processada da coluna financeira
+            receita_prevista = df_financeiro['Valor_Num'].sum() if 'Valor_Num' in df_financeiro.columns else 0.0
+            st.metric("Faturamento Previsto (Maio)", f"R$ {receita_prevista:,.2f}")
         with col3:
-            total_agendamentos = len(df_agenda) if not df_agenda.empty else 0
-            st.metric("Aulas Totais na Agenda", total_agendamentos)
+            # Conta estritamente a quantidade de agendamentos montados
+            total_aulas = len(df_agenda) if not df_agenda.empty else 0
+            st.metric("Total de Aulas Agendadas", total_aulas)
             
         st.write("---")
-        st.subheader("Ficha de Cadastro Centralizada")
+        st.subheader("Visualização Cadastral Primária (Aba Cadastro)")
         if not df_alunos.empty:
-            exibir_colunas = [c for c in ['ID_Aluno', 'Nome_Completo', 'WhatsApp', 'Modalidade', 'Status_Aluno'] if c in df_alunos.columns]
-            st.dataframe(df_alunos[exibir_colunas], use_container_width=True, hide_index=True)
+            st.dataframe(df_alunos, use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhum dado cadastral localizado na planilha master.")
+            st.warning("Aba Cadastro_Alunos está inacessível ou vazia.")
 
-    # MÓDULO: GESTÃO FINANCEIRA
+    # 💰 FILTRO: FINANCEIRO DETALHADO
     elif menu_treinador == "💰 Financeiro Detalhado":
-        st.subheader("Análise Gráfica de Entradas")
+        st.subheader("Performance Financeira de Cobranças")
         
         if not df_financeiro.empty and 'Status_Pagamento' in df_financeiro.columns:
-            # Agrupamento seguro protegendo o sistema contra quebras se houver apenas um tipo de status
-            resumo_status = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
-            st.bar_chart(resumo_status)
+            resumo_grafico = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
+            st.bar_chart(resumo_grafico)
             
             st.write("---")
-            st.subheader("Livro de Lançamentos de Cobrança")
+            st.subheader("Todos os Lançamentos Financeiros (Chave: ID_Lancamento)")
             st.dataframe(df_financeiro, use_container_width=True, hide_index=True)
         else:
-            st.warning("Base financeira vazia ou colunas de controle ausentes.")
+            st.warning("Não há dados financeiros estruturados para exibição.")
 
-    # MÓDULO: AGENDA CENTRAL DE AULAS
+    # 📅 FILTRO: AGENDA DE ATENDIMENTOS
     elif menu_treinador == "📅 Agenda de Atendimentos":
-        st.subheader("Visão por Cronograma Semanal")
+        st.subheader("Cronograma Geral de Aulas (Chave: ID_Agendamento)")
         
-        if not df_agenda.empty and 'Data_Aula' in df_agenda.columns:
-            dias_semana = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"]
-            dia_filtro = st.selectbox("Escolha o Dia para Auditoria:", ["Todos os Dias"] + dias_semana)
+        if not df_agenda.empty:
+            col_dia = 'Data_Aula' if 'Data_Aula' in df_agenda.columns else (df_agenda.columns[3] if len(df_agenda.columns) > 3 else None)
             
-            # Padroniza a string de busca para evitar quebras por acentuação ou caixa alta
-            if dia_filtro != "Todos os Dias":
-                agenda_filtrada = df_agenda[df_agenda['Data_Aula'].str.strip().str.lower() == dia_filtro.lower()]
-            else:
-                agenda_filtrada = df_agenda
+            if col_dia and col_dia in df_agenda.columns:
+                lista_dias = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"]
+                dia_selecionado = st.selectbox("Filtrar Visão do Cronograma Semanal:", ["Todos os Dias"] + lista_dias)
                 
-            st.dataframe(agenda_filtrada, use_container_width=True, hide_index=True)
-        else:
-            st.warning("Nenhuma rotina de agendamento de aulas foi estruturada na planilha.")
-
-    # MÓDULO: PRESCRIÇÃO E FICHA TÉCNICA
-    elif menu_treinador == "🏋️ Prescrição de Treinos":
-        st.subheader("Gestor de Treinos Relacional")
-        
-        if not df_alunos.empty and 'Nome_Completo' in df_alunos.columns:
-            aluno_treino = st.selectbox("Selecione o Aluno Alvo:", df_alunos['Nome_Completo'].dropna().unique().tolist())
-            
-            # Captura o ID do aluno associado de forma estrita
-            linha_aluno = df_alunos[df_alunos['Nome_Completo'] == aluno_treino]
-            if not linha_aluno.empty:
-                id_aluno = str(linha_aluno['ID_Aluno'].values[0]).strip().upper()
-                
-                st.write(f"Código do Aluno Selecionado: **{id_aluno}**")
-                
-                if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
-                    # Filtra cruzando estritamente os IDs tratados
-                    treino_especifico = df_treinos[df_treinos['ID_Aluno'].str.strip().str.upper() == id_aluno]
-                    
-                    if treino_especifico.empty or treino_especifico['Nome_Exercicio'].isna().all():
-                        st.info(f"O sistema localizou o cadastro de {aluno_treino}, mas a tabela de exercícios técnicos (EXE) está aguardando inserção de dados no Sheets.")
-                    else:
-                        st.dataframe(treino_especifico, use_container_width=True, hide_index=True)
+                if dia_selecionado != "Todos os Dias":
+                    agenda_exibicao = df_agenda[df_agenda[col_dia].str.lower() == dia_selecionado.lower()]
                 else:
-                    st.error("Aba de Prescrição de Treinos sem coluna relacional indexadora 'ID_Aluno'.")
+                    agenda_exibicao = df_agenda
+                    
+                st.dataframe(agenda_exibicao, use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(df_agenda, use_container_width=True, hide_index=True)
         else:
-            st.error("Impossível carregar módulo de prescrição: Lista de alunos inválida.")
+            st.warning("Nenhum dado encontrado na aba Agendamento_Aulas.")
+
+    # 🏋️ FILTRO: PRESCRIÇÃO DE TREINOS
+    elif menu_treinador == "🏋️ Prescrição de Treinos":
+        st.subheader("Fichas Técnicas de Exercícios (Chave: ID_Exercicio)")
+        
+        col_nome_aluno = localizar_coluna_nome(df_alunos)
+        col_id_aluno = localizar_coluna_id(df_alunos)
+        
+        if col_nome_aluno and not df_alunos.empty:
+            aluno_alvo = st.selectbox("Selecione o Aluno para Auditoria de Treino:", df_alunos[col_nome_aluno].unique().tolist())
+            id_do_alvo = df_alunos[df_alunos[col_nome_aluno] == aluno_alvo][col_id_aluno].values[0]
+            
+            st.write(f"Buscando treinos vinculados ao ID do Aluno: **{id_do_alvo}**")
+            
+            col_id_treino = localizar_coluna_id(df_treinos)
+            if col_id_treino and not df_treinos.empty:
+                treino_filtrado = df_treinos[df_treinos[col_id_treino].str.upper() == id_do_alvo.upper()]
+                
+                # Se a planilha tiver as linhas dos IDs criadas mas sem o nome do exercício digitado ainda
+                if treino_filtrado.empty or ('Nome_Exercicio' in treino_filtrado.columns and treino_filtrado['Nome_Exercicio'].isna().all()):
+                    st.info(f"O aluno {aluno_alvo} ({id_do_alvo}) está integrado no app, mas as especificações técnicas de exercícios estão vazias na planilha.")
+                else:
+                    st.dataframe(treino_filtrado, use_container_width=True, hide_index=True)
+            else:
+                st.warning("Aba de Prescrição de Treinos vazia ou sem coluna indexadora de ID.")
+        else:
+            st.error("Base cadastral indisponível para carregar a lista de seleção.")
 
 # ==========================================
-# 🏃 INTERFACE DE ACESSO: ÁREA DO ALUNO
+# 🏃 VISÃO INTERACTIVE: ÁREA DO ALUNO
 # ==========================================
 elif perfil == "🏃 Área do Aluno":
     st.title("Portal do Aluno - Team Muniz")
     
-    if not df_alunos.empty and 'Nome_Completo' in df_alunos.columns:
-        lista_nomes = df_alunos["Nome_Completo"].dropna().unique().tolist()
-        aluno_selecionado = st.selectbox("Selecione seu Nome de Usuário para Login:", lista_nomes)
+    col_nome_aluno = localizar_coluna_nome(df_alunos)
+    col_id_aluno = localizar_coluna_id(df_alunos)
+    
+    if col_nome_aluno and not df_alunos.empty:
+        aluno_user = st.selectbox("Selecione seu Nome Cadastrado para Acesso:", df_alunos[col_nome_aluno].unique().tolist())
+        id_cripto = df_alunos[df_alunos[col_nome_aluno] == aluno_user][col_id_aluno].values[0]
         
-        # Pega o ID de amarração de forma blindada
-        id_aluno = str(df_alunos[df_alunos["Nome_Completo"] == aluno_selecionado]["ID_Aluno"].values[0]).strip().upper()
-        st.info(f"Bem-vindo! Seu ID Identificador de Segurança é: **{id_aluno}**")
+        st.info(f"Acesso Autorizado! Identificador de Matrícula: **{id_cripto}**")
         
-        aba_treino, aba_evolucao, aba_financeiro = st.tabs(["🏋️ Minha Ficha de Treino", "📈 Gráficos de Evolução", "💳 Situação Financeira"])
+        t1, t2, t3 = st.tabs(["🏋️ Minha Ficha de Treino", "📈 Minha Evolução Física", "💳 Minhas Mensalidades"])
         
-        # ABA ALUNO: TREINOS
-        with aba_treino:
-            st.subheader("Sua Rotina Exclusiva de Exercícios")
-            if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
-                treino_do_aluno = df_treinos[df_treinos["ID_Aluno"].str.strip().str.upper() == id_aluno]
+        with t1:
+            st.subheader("Prescrição de Treino Ativa")
+            col_id_treinos = localizar_coluna_id(df_treinos)
+            if col_id_treinos and not df_treinos.empty:
+                meu_treino = df_treinos[df_treinos[col_id_treinos].str.upper() == id_cripto.upper()]
+                if not meu_treino.empty and 'Nome_Exercicio' in meu_treino.columns and not meu_treino['Nome_Exercicio'].isna().all():
+                    st.dataframe(meu_treino, use_container_width=True, hide_index=True)
+                else:
+                    st.info("Fábio está estruturando a sua nova planilha de treinamento técnico. Aguarde as atualizações!")
+            else:
+                st.warning("Módulo de treinos indisponível.")
                 
-                if not treino_do_aluno.empty and not treino_do_aluno["Nome_Exercicio"].isna().all():
-                    st.dataframe(treino_do_aluno.dropna(subset=['Nome_Exercicio']), use_container_width=True, hide_index=True)
+        with t2:
+            st.subheader("Histórico de Avaliações (Bioimpedância)")
+            col_id_bio = localizar_coluna_id(df_bio)
+            if col_id_bio and not df_bio.empty:
+                minha_bio = df_bio[df_bio[col_id_bio].str.upper() == id_cripto.upper()]
+                if not minha_bio.empty:
+                    st.dataframe(minha_bio, use_container_width=True, hide_index=True)
                 else:
-                    st.info("Sua nova periodização técnica está em desenvolvimento pelo treinador Fábio. Aguarde a liberação!")
+                    st.info("Nenhum registro de avaliação física associado a este ID.")
             else:
-                st.warning("Sistema de treinos fora de alcance temporariamente.")
+                st.warning("Módulo de bioimpedância inacessível.")
                 
-        # ABA ALUNO: AVALIAÇÃO FÍSICA
-        with aba_evolucao:
-            st.subheader("Histórico Clínico e Bioimpedância")
-            if not df_bio.empty and 'ID_Aluno' in df_bio.columns:
-                bio_do_aluno = df_bio[df_bio["ID_Aluno"].str.strip().str.upper() == id_aluno]
-                if not bio_do_aluno.empty:
-                    st.dataframe(bio_do_aluno, use_container_width=True, hide_index=True)
+        with t3:
+            st.subheader("Controle de Faturas")
+            col_id_fin = localizar_coluna_id(df_financeiro)
+            if col_id_fin and not df_financeiro.empty:
+                meu_financeiro = df_financeiro[df_financeiro[col_id_fin].str.upper() == id_cripto.upper()]
+                if not meu_financeiro.empty:
+                    exibir_faturas = [c for c in ['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento'] if c in meu_financeiro.columns]
+                    st.dataframe(meu_financeiro[exibir_faturas], use_container_width=True, hide_index=True)
                 else:
-                    st.info("Nenhum registro de bioimpedância lançado para o seu ID até o momento.")
+                    st.info("Não constam cobranças ativas vinculadas a esta matrícula.")
             else:
-                st.warning("Módulo de evolução indisponível.")
-            
-        # ABA ALUNO: FINANCEIRO
-        with aba_financeiro:
-            st.subheader("Histórico de Mensalidades")
-            if not df_financeiro.empty and 'ID_Aluno' in df_financeiro.columns:
-                fin_do_aluno = df_financeiro[df_financeiro["ID_Aluno"].str.strip().str.upper() == id_aluno]
-                if not fin_do_aluno.empty:
-                    colunas_aluno_fin = [c for c in ['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento'] if c in fin_do_aluno.columns]
-                    st.dataframe(fin_do_aluno[colunas_aluno_fin], use_container_width=True, hide_index=True)
-                else:
-                    st.info("Não existem faturas em aberto ou processadas vinculadas a este perfil.")
-            else:
-                st.warning("Painel financeiro do aluno fora do ar.")
+                st.warning("Painel financeiro indisponível.")
