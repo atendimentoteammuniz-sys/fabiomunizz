@@ -10,81 +10,69 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilização Visual Premium (Preto de fundo e detalhes em Dourado)
+# Estilização Visual Premium (Fundo grafite escuro e detalhes em Dourado)
 st.markdown("""
     <style>
-    .main { background-color: #0e0e0e; color: #FFFFFF; }
-    .sidebar .sidebar-content { background-color: #161616; }
+    .main { background-color: #0d0d0d; color: #FFFFFF; }
+    .sidebar .sidebar-content { background-color: #151515; }
     h1, h2, h3 { color: #D4AF37 !important; font-family: 'Helvetica', sans-serif; }
     div.stButton > button:first-child {
         background-color: #D4AF37; color: #000000; font-weight: bold; border-radius: 6px; width: 100%;
     }
-    .kpi-box { background-color: #1c1c1c; padding: 20px; border-radius: 8px; border-left: 4px solid #D4AF37; }
+    .kpi-box { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #D4AF37; margin-bottom: 15px; }
+    .kpi-box-red { background-color: #1a1a1a; padding: 20px; border-radius: 8px; border-left: 4px solid #FF4B4B; margin-bottom: 15px; }
+    .card-exercicio { background-color: #1c1c1c; padding: 15px; border-radius: 8px; border: 1px solid #333; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# URL Base estrita do seu Google Sheets para exportação de CSV
 URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
-# MAPEAMENTO DOS GIDS DAS SUAS ABAS REALMENTE CONFERIDAS
 GIDS = {
-    "Cadastro_Alunos": "896837375",
-    "Historico_Bioimpedancia": "736167025",
-    "Controle_Financeiro": "266431932",   # <--- ENTRADAS (RECEITAS)
-    "Fluxo_Caixa_Geral": "1156715922",     # <--- SAÍDAS (GASTOS)
-    "Prescricao_Treinos": "181621672",
-    "Agendamento_Aulas": "1168521543"
+    "Cadastro_Alunos": "1168521543",
+    "Controle_Financeiro": "439294975",
+    "Agendamento_Aulas": "1486576823",
+    "Historico_Bioimpedancia": "2134988451",
+    "Prescricao_Treinos": "1619478144",
+    "Fluxo_Caixa_Geral": "1809059737"
 }
 
-def carregar_dados_aba(nome_aba):
-    """Carrega a aba garantindo o isolamento total pelo GID correto"""
-    url_completa = f"{URL_BASE}{GIDS[nome_aba]}"
+def carregar_dados(aba_nome):
+    url = URL_BASE + GIDS[aba_nome]
     try:
-        df = pd.read_csv(url_completa)
+        df = pd.read_csv(url)
         df = df.dropna(how='all')
-        
-        # Limpeza de cabeçalhos contra poeira textual
         df.columns = df.columns.astype(str).str.replace(r'\\', '', regex=True).str.replace('*', '', regex=False).str.strip()
-        df.columns = df.columns.str.replace(' ', '_', regex=False)
         return df
     except Exception as e:
-        st.error(f"Erro crítico ao conectar na aba {nome_aba}: {e}")
         return pd.DataFrame()
 
-# --- CARREGAMENTO ISOLADO DE CADA TABELA ---
-df_alunos = carregar_dados_aba("Cadastro_Alunos")
-df_financeiro = carregar_dados_aba("Controle_Financeiro") # Entradas
-df_fluxo_caixa = carregar_dados_aba("Fluxo_Caixa_Geral")    # Saídas
-df_agenda = carregar_dados_aba("Agendamento_Aulas")
-df_treinos = carregar_dados_aba("Prescricao_Treinos")
-df_bio = carregar_dados_aba("Historico_Bioimpedancia")
+# --- CARGA GLOBAL DAS ABAS ---
+df_alunos = carregar_dados("Cadastro_Alunos")
+df_financeiro = carregar_dados("Controle_Financeiro")
+df_agenda = carregar_dados("Agendamento_Aulas")
+df_treinos = carregar_dados("Prescricao_Treinos")
+df_bio = carregar_dados("Historico_Bioimpedancia")
+df_caixa = carregar_dados("Fluxo_Caixa_Geral")
 
-def tratar_coluna_numerica(df, possíveis_colunas):
-    """Transforma colunas de texto monetário (R$ 150,00) em float limpo para cálculo"""
-    if df.empty:
-        return pd.Series(dtype=float)
-    col_encontrada = None
-    for col in possíveis_colunas:
-        if col in df.columns:
-            col_encontrada = col
-            break
-    if col_encontrada:
-        return df[col_encontrada].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
-    return pd.Series([0.0] * len(df))
+# Tratamento Numérico Financeiro (Receitas)
+if not df_financeiro.empty and 'Valor_Cobrado' in df_financeiro.columns:
+    df_financeiro['Valor_Num'] = df_financeiro['Valor_Cobrado'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
+else:
+    df_financeiro['Valor_Num'] = 0.0
 
-# Tratamento Numérico Seguro de Entradas (Receitas)
-df_financeiro['Valor_Num'] = tratar_coluna_numerica(df_financeiro, ['Valor_Cobrado', 'Valor', 'Preco'])
+# Tratamento Numérico (Saídas / Fluxo de Caixa)
+if not df_caixa.empty and 'Valor_Saida' in df_caixa.columns:
+    df_caixa['Saida_Num'] = df_caixa['Valor_Saida'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
+else:
+    df_caixa['Saida_Num'] = 0.0
 
-# Tratamento Numérico Seguro de Saídas (Gastos no Fluxo de Caixa)
-df_fluxo_caixa['Valor_Num'] = tratar_coluna_numerica(df_fluxo_caixa, ['Valor_Pago', 'Valor', 'Saida', 'Gasto'])
-
-# --- NAVEGAÇÃO LATERAL ---
+# --- MENU LATERAL ---
 st.sidebar.title("🏆 Team Muniz Hub")
 st.sidebar.write("---")
 perfil = st.sidebar.radio("Selecione o Portal de Acesso:", ["🏃 Portal do Aluno", "👑 Painel do Treinador"])
 
 # =====================================================================
-# 👑 PERFIL ADMINISTRATIVO: TREINADOR (FÁBIO)
+# 👑 PAINEL DO TREINADOR (FÁBIO)
 # =====================================================================
 if perfil == "👑 Painel do Treinador":
     st.sidebar.write("---")
@@ -95,224 +83,189 @@ if perfil == "👑 Painel do Treinador":
         
         menu = st.sidebar.selectbox(
             "Selecione o Módulo Administrativo:",
-            ["📊 Dashboard & Cadastro", "💰 Cobrança & Receitas", "📅 Organização da Agenda", "🏋️ Central de Exercícios"]
+            ["📊 Dashboard Geral", "👥 Auditoria de Cadastros", "💰 Cobranças & Receitas", "📅 Organização da Agenda", "🏋️ Central de Exercícios"]
         )
         
         # -------------------------------------------------------------
-        # MÓDULO 1: DASHBOARD & CADASTRO (Cálculos de Balanço Corrigidos)
+        # MÓDULO 1: DASHBOARD GERAL
         # -------------------------------------------------------------
-        if menu == "📊 Dashboard & Cadastro":
-            st.title("Indicadores e Perfis de Clientes")
+        if menu == "📊 Dashboard Geral":
+            st.title("Dashboard de Controle Financeiro e Operacional")
             
-            # Contagens baseadas estritamente na nova regra de negócio orientada
-            total_alunos_count = len(df_alunos) if not df_alunos.empty else 0
+            # Cálculos dos Quadrinhos Primários
+            ativos = len(df_alunos[df_alunos['Status_Aluno'] == 'Ativo']) if not df_alunos.empty else 0
+            entradas = df_financeiro['Valor_Num'].sum() if not df_financeiro.empty else 0.0
+            saidas = df_caixa['Saida_Num'].sum() if not df_caixa.empty else 0.0
+            saldo_liquido = entradas - saidas
             
-            entradas_totais = df_financeiro['Valor_Num'].sum() if not df_financeiro.empty else 0.0
-            saidas_totais = df_fluxo_caixa['Valor_Num'].sum() if not df_fluxo_caixa.empty else 0.0
-            saldo_liquido = entradas_totais - saidas_totais
-            
-            # Exibição dos KPIs macro do negócio
+            # Renderização dos Quadrinhos de Layout
             c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Alunos Ativos</span><br><h2>{total_alunos_count}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Alunos Ativos</span><br><h2 style='margin:0;'>{ativos}</h2></div>", unsafe_allow_html=True)
             with c2:
-                st.markdown(f"<div class='kpi-box'><span style='color:green;'>Entradas (Receitas)</span><br><h2>R$ {entradas_totais:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Entradas (Receitas)</span><br><h2 style='margin:0;color:#D4AF37;'>R$ {entradas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c3:
-                st.markdown(f"<div class='kpi-box'><span style='color:red;'>Saídas (Gastos)</span><br><h2>R$ {saidas_totais:,.2f}</h2></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;font-size:14px;'>Saídas (Gastos)</span><br><h2 style='margin:0;color:#FF4B4B;'>R$ {saidas:,.2f}</h2></div>", unsafe_allow_html=True)
             with c4:
-                cor_saldo = "cyan" if saldo_liquido >= 0 else "orange"
-                st.markdown(f"<div class='kpi-box'><span style='color:gray;'>Saldo Real Líquido</span><br><h2 style='color:{cor_saldo} !important;'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
+                cor_saldo = "#D4AF37" if saldo_liquido >= 0 else "#FF4B4B"
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;font-size:14px;'>Saldo Real Líquido</span><br><h2 style='margin:0;color:{cor_saldo};'>R$ {saldo_liquido:,.2f}</h2></div>", unsafe_allow_html=True)
             
+            # CENTRAL DE COBRANÇA DIRETO NO DASHBOARD
             st.write("---")
-            st.subheader("Filtro Individual de Aluno (Dados Cadastrais)")
+            st.subheader("📲 Central de Mensagens e Cobranças Ativas")
             
-            col_nome_cad = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else ('Nome_Aluno' if 'Nome_Aluno' in df_alunos.columns else None)
+            devedores = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pendente'] if not df_financeiro.empty else pd.DataFrame()
             
-            if not df_alunos.empty and col_nome_cad:
-                lista_nomes = df_alunos[col_nome_cad].dropna().tolist()
-                aluno_selecionado = st.selectbox("Selecione o Aluno para Ver a Ficha Cadastral:", lista_nomes)
-                dados_do_aluno = df_alunos[df_alunos[col_nome_cad] == aluno_selecionado].iloc[0]
-                
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.markdown(f"**Código de Identificação:** {dados_do_aluno.get('ID_Aluno', 'N/A')}")
-                    st.markdown(f"**WhatsApp / Celular:** {dados_do_aluno.get('WhatsApp', dados_do_aluno.get('Telefone', 'N/A'))}")
-                with col_b:
-                    st.markdown(f"**Modalidade Contratada:** {dados_do_aluno.get('Modalidade', 'N/A')}")
-                    st.markdown(f"**Status no Sistema:** {dados_do_aluno.get('Status_Aluno', 'N/A')}")
-            else:
-                st.warning("Aguardando leitura de dados válidos da aba de cadastro.")
-            
-            st.write("---")
-            with st.expander("Ver Planilha Completa de Cadastros"):
-                st.dataframe(df_alunos, use_container_width=True)
-
-        # -------------------------------------------------------------
-        # MÓDULO 2: COBRANÇA & RECEITAS
-        # -------------------------------------------------------------
-        elif menu == "💰 Cobrança & Receitas":
-            st.title("Gestão de Receitas e Despesas (Fluxo)")
-            
-            tab_entradas, tab_saidas = st.tabs(["💰 Entradas (Receitas)", "📉 Saídas (Fluxo de Caixa / Gastos)"])
-            
-            with tab_entradas:
-                col_status = 'Status_Pagamento' if 'Status_Pagamento' in df_financeiro.columns else ('Status' if 'Status' in df_financeiro.columns else None)
-                
-                if not df_financeiro.empty and col_status and 'Valor_Num' in df_financeiro.columns:
-                    st.write("### Divisão de Receitas por Categoria")
-                    df_pizza = df_financeiro.dropna(subset=[col_status]).groupby(col_status, as_index=False)['Valor_Num'].sum()
-                    try:
-                        st.pie_chart(df_pizza, theme=None, names=col_status, values='Valor_Num')
-                    except Exception:
-                        st.dataframe(df_pizza.rename(columns={col_status: 'Status', 'Valor_Num': 'Total (R$)'}), use_container_width=True)
-                    
-                    st.write("---")
-                    st.subheader("Filtros das Faturas de Alunos")
-                    col_b1, col_b2, col_b3 = st.columns(3)
-                    filtro_financeiro = "Todos"
-                    with col_b1:
-                        if st.button("Ver Apenas Cobranças Pendentes"): filtro_financeiro = "Pendente"
-                    with col_b2:
-                        if st.button("Ver Apenas Mensalidades Pagas"): filtro_financeiro = "Pago"
-                    with col_b3:
-                        if st.button("Redefinir Filtros (Ver Tudo)"): filtro_financeiro = "Todos"
-                    
-                    if filtro_financeiro != "Todos":
-                        df_exibicao_fin = df_financeiro[df_financeiro[col_status].astype(str).str.contains(filtro_financeiro, na=False, case=False)]
-                    else:
-                        df_exibicao_fin = df_financeiro
+            if not devedores.empty:
+                for idx, row in devedores.iterrows():
+                    aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
+                    if not aluno_info.empty:
+                        telefone = str(aluno_info.iloc[0]['WhatsApp']).strip()
+                        nome_aluno = row['Nome_Aluno']
+                        vencimento = row['Data_Vencimento'] if 'Data_Vencimento' in row else "Mês Atual"
+                        valor = row['Valor_Cobrado']
                         
-                    st.dataframe(df_exibicao_fin, use_container_width=True)
-                    
-                    # Central de Cobrança Automatizada via WhatsApp
-                    st.write("---")
-                    st.subheader("⚠️ Central de Mensagens Automáticas de Cobrança")
-                    devedores = df_financeiro[df_financeiro[col_status].astype(str).str.contains('Pendente', na=False, case=False)]
-                    
-                    if not devedores.empty:
-                        for idx, row in devedores.iterrows():
-                            id_alvo = row.get('ID_Aluno')
-                            aluno_info = df_alunos[df_alunos['ID_Aluno'] == id_alvo] if not df_alunos.empty and 'ID_Aluno' in df_alunos.columns else pd.DataFrame()
-                            
-                            lbl_nome = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else 'Nome_Aluno'
-                            nome_aluno = row.get('Nome_Aluno', (aluno_info.iloc[0][lbl_nome] if not aluno_info.empty else "Aluno"))
-                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty and 'WhatsApp' in aluno_info.columns else ""
-                            val_txt = row.get('Valor_Cobrado', row.get('Valor', 'Mensalidade'))
-                            
-                            if telefone and telefone != "nan" and telefone != "":
-                                mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz ({val_txt}) está aberta. Caso já tenha realizado o pagamento, desconsidere! 💪"
-                                mensagem_codificada = urllib.parse.quote(mensagem)
-                                link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
-                                
-                                col_txt, col_btn = st.columns([4, 1])
-                                with col_txt:
-                                    st.write(f"🔴 **{nome_aluno}** - Fatura Pendente de {val_txt}.")
-                                with col_btn:
-                                    st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
-                    else:
-                        st.success("Tudo em dia! Nenhuma cobrança pendente identificada.")
-                else:
-                    st.info("Aba de controle financeiro vazia ou sem colunas compatíveis.")
-            
-            with tab_saidas:
-                st.write("### Histórico e Lançamento de Gastos (Fluxo de Caixa)")
-                if not df_fluxo_caixa.empty:
-                    st.dataframe(df_fluxo_caixa, use_container_width=True)
-                else:
-                    st.info("Nenhum registro de gasto/saída encontrado na aba do Fluxo de Caixa ainda.")
+                        mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
+                        mensagem_codificada = urllib.parse.quote(mensagem)
+                        link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                        
+                        col_txt, col_btn = st.columns([4, 1])
+                        with col_txt:
+                            st.write(f"🔴 **{nome_aluno}** | Vencimento: {vencimento} | Valor: **{valor}**")
+                        with col_btn:
+                            st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+            else:
+                st.success("Tudo em dia! Nenhuma cobrança pendente para envio.")
 
         # -------------------------------------------------------------
-        # MÓDULO 3: AGENDA DE ATENDIMENTOS
+        # MÓDULO 2: AUDITORIA DE CADASTROS (Aba Separada)
+        # -------------------------------------------------------------
+        elif menu == "👥 Auditoria de Cadastros":
+            st.title("Central de Cadastro de Alunos")
+            
+            if not df_alunos.empty:
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    total_ativos = len(df_alunos[df_alunos['Status_Aluno'] == 'Ativo'])
+                    st.info(f"Quantidade de Alunos Ativos: {total_ativos}")
+                with col_f2:
+                    total_inativos = len(df_alunos[df_alunos['Status_Aluno'] == 'Inativo'])
+                    st.warning(f"Quantidade de Alunos Inativos: {total_inativos}")
+                
+                st.write("---")
+                st.dataframe(df_alunos[['ID_Aluno', 'Nome_Completo', 'WhatsApp', 'Modalidade', 'Status_Aluno']], use_container_width=True)
+            else:
+                st.error("Planilha de cadastro vazia ou inacessível.")
+
+        # -------------------------------------------------------------
+        # MÓDULO 3: COBRANÇAS & RECEITAS
+        # -------------------------------------------------------------
+        elif menu == "💰 Cobranças & Receitas":
+            st.title("Gestão de Receitas por Categoria")
+            
+            # Quadros de resumo de Status (Pago vs Pendente)
+            pago_total = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pago']['Valor_Num'].sum()
+            pendente_total = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pendente']['Valor_Num'].sum()
+            
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;'>Total Recebido (Pago)</span><br><h3 style='color:#D4AF37;'>R$ {pago_total:,.2f}</h3></div>", unsafe_allow_html=True)
+            with col_p2:
+                st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;'>Total Em Aberto (Pendente)</span><br><h3 style='color:#FF4B4B;'>R$ {pendente_total:,.2f}</h3></div>", unsafe_allow_html=True)
+            
+            st.write("---")
+            st.subheader("Gráfico de Pizza das Finanças")
+            resumo_pizza = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
+            st.pie_chart(resumo_pizza)
+
+        # -------------------------------------------------------------
+        # MÓDULO 4: ORGANIZAÇÃO DA AGENDA
         # -------------------------------------------------------------
         elif menu == "📅 Organização da Agenda":
-            st.title("Agenda de Atendimentos Presenciais")
+            st.title("Agenda de Atendimentos Semanais")
+            tipo_agenda = st.radio("Modalidade:", ["Treinamento Fixo Individual", "Treinamento em Grupo"])
             
-            lbl_nome_age = 'Nome_Aluno' if 'Nome_Aluno' in df_agenda.columns else ('Nome' if 'Nome' in df_agenda.columns else None)
+            df_filtrado_agenda = df_agenda[df_agenda['Observacoes_Agenda'] == ('Treino Fixo' if tipo_agenda == "Treinamento Fixo Individual" else 'Treino em Grupo')] if not df_agenda.empty else pd.DataFrame()
             
-            if not df_agenda.empty and lbl_nome_age:
-                tipo_agenda = st.radio("Selecione a Modalidade da Agenda:", ["Treinamento Fixo Individual", "Treinamento em Grupo"])
-                
-                col_obs = 'Observacoes_Agenda' if 'Observacoes_Agenda' in df_agenda.columns else ('Observacoes' if 'Observacoes' in df_agenda.columns else None)
-                if col_obs:
-                    if tipo_agenda == "Treinamento Fixo Individual":
-                        df_filtrado_agenda = df_agenda[df_agenda[col_obs].astype(str).str.contains('Fixo', na=False, case=False)]
-                    else:
-                        df_filtrado_agenda = df_agenda[df_agenda[col_obs].astype(str).str.contains('Grupo', na=False, case=False)]
-                else:
-                    df_filtrado_agenda = df_agenda
-                    
-                if not df_filtrado_agenda.empty:
-                    lista_alunos_agenda = df_filtrado_agenda[lbl_nome_age].unique()
-                    for aluno in lista_alunos_agenda:
-                        with st.expander(f"👤 Ver Horários da Agenda de: {aluno}"):
-                            dados_agenda_aluno = df_filtrado_agenda[df_filtrado_agenda[lbl_nome_age] == aluno]
-                            st.dataframe(dados_agenda_aluno, use_container_width=True)
-                else:
-                    st.info("Nenhum horário registrado para esta modalidade específica.")
-            else:
-                st.warning("Aba de Agendamento vazia ou sem mapeamento de nomes.")
+            if not df_filtrado_agenda.empty:
+                for aluno in df_filtrado_agenda['Nome_Aluno'].unique():
+                    with st.expander(f"👤 Agenda de: {aluno}"):
+                        st.dataframe(df_filtrado_agenda[df_filtrado_agenda['Nome_Aluno'] == aluno][['ID_Agendamento', 'Data_Aula', 'Horario_Inicio', 'Horario_Fim', 'Status_Aula']], use_container_width=True)
 
         # -------------------------------------------------------------
-        # MÓDULO 4: PRESCRIÇÃO DE TREINOS
+        # MÓDULO 5: CENTRAL DE EXERCÍCIOS (Em Quadrinhos de Layout)
         # -------------------------------------------------------------
         elif menu == "🏋️ Central de Exercícios":
-            st.title("Fichas de Exercícios Técnicos")
+            st.title("Fichas de Treino por Aluno")
             
-            col_nome_cad = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else 'Nome_Aluno'
-            if not df_alunos.empty and col_nome_cad in df_alunos.columns:
-                aluno_treino_sel = st.selectbox("Selecione o Aluno para Abrir a Ficha:", df_alunos[col_nome_cad].tolist())
-                id_aluno_sel = df_alunos[df_alunos[col_nome_cad] == aluno_treino_sel]['ID_Aluno'].values[0]
-                
-                with st.expander(f"📂 Abrir Ficha Completa (ID: {id_aluno_sel})"):
-                    if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
-                        treino_filtrado_muniz = df_treinos[df_treinos['ID_Aluno'] == id_aluno_sel]
-                        if treino_filtrado_muniz.empty:
-                            st.info("A ficha deste aluno está criada, mas nenhum exercício (EXE) foi digitado nela ainda.")
-                        else:
-                            st.dataframe(treino_filtrado_muniz, use_container_width=True)
-                    else:
-                        st.warning("Aba de treinos indisponível ou sem a coluna 'ID_Aluno'.")
+            aluno_sel = st.selectbox("Selecione o Aluno para auditar a ficha:", df_alunos['Nome_Completo'].tolist())
+            id_aluno_sel = df_alunos[df_alunos['Nome_Completo'] == aluno_sel]['ID_Aluno'].values[0]
+            
+            st.write(f"### Ficha Tática Técnica de: {aluno_sel} ({id_aluno_sel})")
+            
+            treino_filtrado = df_treinos[df_treinos['ID_Aluno'] == id_aluno_sel] if not df_treinos.empty else pd.DataFrame()
+            
+            if not treino_filtrado.empty and not treino_filtrado['Nome_Exercicio'].isna().all():
+                # Renderização em Quadrinhos de Conteúdo (Cards)
+                for idx, row in treino_filtrado.dropna(subset=['Nome_Exercicio']).iterrows():
+                    st.markdown(f"""
+                    <div class='card-exercicio'>
+                        <span style='color:#D4AF37; font-weight:bold; font-size:16px;'>{row['Nome_Exercicio']}</span><br>
+                        <span style='color:#aaa;'>Divisão:</span> {row['Divisao_Treino']} | 
+                        <span style='color:#aaa;'>Grupo:</span> {row['Grupo_Muscular']}<br>
+                        <span style='color:#D4AF37;'>{row['Series']} Séries x {row['Repeticoes']} Repetições</span> | Descanso: {row['Descanso']}
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
-                st.error("Dados cadastrais indisponíveis para listagem de alunos.")
-                
-    elif senha_treinador != "":
-        st.sidebar.error("Chave incorreta. Digite a senha administrativa do Team Muniz.")
+                st.info("Nenhum exercício registrado em formato de planilha para este aluno ainda.")
+    else:
+        st.sidebar.error("Chave inválida.")
 
 # =====================================================================
-# 🏃 PORTAL SEGURO DO ALUNO
+# 🏃 PORTAL DO ALUNO (INTEGRADO COM AGENDA EXTERNA E CARDS)
 # =====================================================================
 elif perfil == "🏃 Portal do Aluno":
     st.title("Portal do Aluno - Team Muniz")
-    st.write("Insira suas credenciais de segurança para liberar o acesso à sua ficha.")
     
-    input_id = st.text_input("Digite seu Código de Acesso (ID Aluno):", placeholder="Ex: ALU001")
-    input_tel = st.text_input("Digite seu Telefone Cadastrado (Com DDD):", placeholder="Ex: 5521974754210")
+    input_id = st.text_input("Seu Código (ID Aluno):", placeholder="ALU001")
+    input_tel = st.text_input("Seu WhatsApp Cadastrado (Com DDD):", placeholder="5511999999999")
     
-    if input_id and input_tel and not df_alunos.empty and 'ID_Aluno' in df_alunos.columns:
-        col_tel = 'WhatsApp' if 'WhatsApp' in df_alunos.columns else ('Telefone' if 'Telefone' in df_alunos.columns else None)
+    if input_id and input_tel:
+        validado = df_alunos[(df_alunos['ID_Aluno'].astype(str) == input_id.strip()) & (df_alunos['WhatsApp'].astype(str) == input_tel.strip())]
         
-        if col_tel:
-            aluno_validado = df_alunos[(df_alunos['ID_Aluno'].astype(str) == input_id.strip()) & (df_alunos[col_tel].astype(str) == input_tel.strip())]
+        if not validado.empty:
+            st.success(f"Logado com Sucesso, {validado.iloc[0]['Nome_Completo']}!")
             
-            if not aluno_validado.empty:
-                col_nome_cad = 'Nome_Completo' if 'Nome_Completo' in df_alunos.columns else 'Nome_Aluno'
-                nome_aluno_logado = aluno_validado.iloc[0][col_nome_cad]
-                st.success(f"Acesso Liberado! Bem-vindo, {nome_aluno_logado}!")
+            # BOTÃO DE LINK DE AGENDAMENTO EXTERNO INTEGRADO NO TOPO
+            st.subheader("📅 Marcação de Aulas")
+            # Substitua o link do google abaixo pelo seu link real do Calendly / Google Calendar se preferir
+            st.markdown('<a href="https://calendar.google.com" target="_blank"><button style="background-color:#D4AF37;color:black;font-weight:bold;padding:10px;border-radius:5px;width:100%;border:none;cursor:pointer;">🗓️ Confirmar Presença ou Agendar Nova Aula</button></a>', unsafe_allow_html=True)
+            st.write("---")
+            
+            t_treino, t_fin = st.tabs(["🏋️ Minha Ficha de Treino", "💳 Meu Histórico Financeiro"])
+            
+            with t_treino:
+                st.subheader("Meus Exercícios Prescritos")
+                treino_aluno = df_treinos[df_treinos['ID_Aluno'] == input_id.strip()].dropna(subset=['Nome_Exercicio']) if not df_treinos.empty else pd.DataFrame()
                 
-                t_treino, t_evolucao, t_fin = st.tabs(["🏋️ Minha Ficha de Exercícios", "📈 Minha Evolução Física", "💳 Meu Financeiro"])
-                
-                with t_treino:
-                    if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
-                        treino_aluno = df_treinos[df_treinos['ID_Aluno'] == input_id.strip()]
-                        if not treino_aluno.empty: st.dataframe(treino_aluno, use_container_width=True)
-                        else: st.info("Seu plano tático de treino está sendo montado por Fábio Muniz.")
-                            
-                with t_evolucao:
-                    if not df_bio.empty and 'ID_Aluno' in df_bio.columns:
-                        st.dataframe(df_bio[df_bio['ID_Aluno'] == input_id.strip()], use_container_width=True)
-                        
-                with t_fin:
-                    if not df_financeiro.empty and 'ID_Aluno' in df_financeiro.columns:
-                        st.dataframe(df_financeiro[df_financeiro['ID_Aluno'] == input_id.strip()], use_container_width=True)
-            else:
-                st.error("Credenciais incorretas. Verifique seu ID ou Telefone cadastrado.")
+                if not treino_aluno.empty:
+                    # Layout em Quadrinhos para o Aluno ver no celular de forma limpa
+                    for idx, row in treino_aluno.iterrows():
+                        st.markdown(f"""
+                        <div class='card-exercicio'>
+                            <b style='color:#D4AF37; font-size:16px;'>{row['Nome_Exercicio']}</b><br>
+                            Foco: {row['Grupo_Muscular']} ({row['Divisao_Treino']})<br>
+                            <span style='color:#D4AF37; font-size:15px;'><b>{row['Series']} x {row['Repeticoes']}</b></span> (Descanso: {row['Descanso']})<br>
+                            <small style='color:#888;'>Obs: {row['Observacoes_Tecnicas'] if 'Observacoes_Tecnicas' in row else 'Executar com cadência controlada.'}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("Fábio Muniz está estruturando sua nova periodização tática!")
+                    
+            with t_fin:
+                st.subheader("Minhas Mensalidades")
+                fin_aluno = df_financeiro[df_financeiro['ID_Aluno'] == input_id.strip()] if not df_financeiro.empty else pd.DataFrame()
+                if not fin_aluno.empty:
+                    st.dataframe(fin_aluno[['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento']], use_container_width=True)
+        else:
+            st.error("Dados incorretos. Tente novamente.")
