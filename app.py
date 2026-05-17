@@ -132,7 +132,7 @@ if perfil == "👑 Painel do Treinador":
                 st.dataframe(df_alunos, use_container_width=True)
 
         # -------------------------------------------------------------
-        # MÓDULO 2: COBRANÇA & RECEITAS
+        # MÓDULO 2: COBRANÇA & RECEITAS (CORRIGIDO)
         # -------------------------------------------------------------
         elif menu == "💰 Cobrança & Receitas":
             st.title("Gestão de Receitas (Gráfico Pizza e Filtros)")
@@ -140,9 +140,12 @@ if perfil == "👑 Painel do Treinador":
             col_status = 'Status_Pagamento' if 'Status_Pagamento' in df_financeiro.columns else ('Status' if 'Status' in df_financeiro.columns else None)
             
             if not df_financeiro.empty and col_status and 'Valor_Num' in df_financeiro.columns:
-                resumo_pizza = df_financeiro.groupby(col_status)['Valor_Num'].sum()
+                # CORREÇÃO CRÍTICA DO PIE CHART: Transformando o agrupamento em um DataFrame estruturado
+                df_pizza = df_financeiro.groupby(col_status, as_index=False)['Valor_Num'].sum()
+                
                 st.write("### Divisão de Receitas por Categoria")
-                st.pie_chart(resumo_pizza)
+                # Passando os nomes exatos das colunas de chaves e valores
+                st.pie_chart(df_pizza, themes=None, names=col_status, values='Valor_Num')
                 
                 st.write("---")
                 st.subheader("Relatórios Dinâmicos por Botão")
@@ -178,14 +181,15 @@ if perfil == "👑 Painel do Treinador":
                         telefone = str(aluno_info.iloc[0]['WhatsApp']).strip() if not aluno_info.empty and 'WhatsApp' in aluno_info.columns else ""
                         val_txt = row.get('Valor_Cobrado', row.get('Valor', 'Mensalidade'))
                         
-                        if telefone and telephone != "nan":
+                        # Correção da variável 'telephone' para 'telefone' para evitar quebra futura
+                        if telefone and telefone != "nan":
                             mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz ({val_txt}) está aberta. Caso já tenha realizado o pagamento, desconsidere! 💪"
                             mensagem_codificada = urllib.parse.quote(mensagem)
                             link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
                             
                             col_txt, col_btn = st.columns([4, 1])
                             with col_txt:
-                                st.write(f"🔴 **{nome_aluno}** - Fatura Pendente de {val_txt}.")
+                                        st.write(f"🔴 **{nome_aluno}** - Fatura Pendente de {val_txt}.")
                             with col_btn:
                                 st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
                 else:
@@ -194,7 +198,7 @@ if perfil == "👑 Painel do Treinador":
                 st.info("Aba de controle financeiro vazia ou sem colunas de Status/Valores.")
 
         # -------------------------------------------------------------
-        # MÓDULO 3: AGENDA DE ATENDIMENTOS (Botões Expandíveis por Aluno)
+        # MÓDULO 3: AGENDA DE ATENDIMENTOS
         # -------------------------------------------------------------
         elif menu == "📅 Organização da Agenda":
             st.title("Agenda de Atendimentos Presenciais")
@@ -251,7 +255,7 @@ if perfil == "👑 Painel do Treinador":
         st.sidebar.error("Chave incorreta. Digite a senha administrativa do Team Muniz.")
 
 # =====================================================================
-# 🏃 PORTAL SEGURO DO ALUNO (Validação Dupla por Celular)
+# 🏃 PORTAL SEGURO DO ALUNO
 # =====================================================================
 elif perfil == "🏃 Portal do Aluno":
     st.title("Portal do Aluno - Team Muniz")
