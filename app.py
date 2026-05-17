@@ -25,15 +25,17 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j688/export?format=csv&gid="
+# URL Base de exportação corrigida conforme os novos links
+URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
 
+# DICIONÁRIO DE GIDS ATUALIZADO CONFORME SUA SOLICITAÇÃO
 GIDS = {
-    "Cadastro_Alunos": "1168521543",
-    "Controle_Financeiro": "439294975",
-    "Agendamento_Aulas": "1486576823",
-    "Historico_Bioimpedancia": "2134988451",
-    "Prescricao_Treinos": "1619478144",
-    "Fluxo_Caixa_Geral": "1809059737"
+    "Cadastro_Alunos": "896837375",
+    "Historico_Bioimpedancia": "736167025",
+    "Controle_Financeiro": "266431932",
+    "Fluxo_Caixa_Geral": "1156715922",
+    "Prescricao_Treinos": "181621672",
+    "Agendamento_Aulas": "1168521543"
 }
 
 def carregar_dados(aba_nome):
