@@ -25,7 +25,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j668/export?format=csv&gid="
+URL_BASE = "https://docs.google.com/spreadsheets/d/1tqfyKLolU1P7AVOYw7vJcOtG19QOM9tSVu6OK09j688/export?format=csv&gid="
 
 GIDS = {
     "Cadastro_Alunos": "1168521543",
@@ -65,6 +65,14 @@ if not df_caixa.empty and 'Valor_Saida' in df_caixa.columns:
     df_caixa['Saida_Num'] = df_caixa['Valor_Saida'].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip().astype(float)
 else:
     df_caixa['Saida_Num'] = 0.0
+
+# Identificação Dinâmica da Coluna de Status Financeiro (Evita KeyError)
+coluna_status_fin = None
+if not df_financeiro.empty:
+    for col in df_financeiro.columns:
+        if 'status' in col.lower() or 'pagamento' in col.lower():
+            coluna_status_fin = col
+            break
 
 # --- MENU LATERAL ---
 st.sidebar.title("🏆 Team Muniz Hub")
@@ -114,31 +122,34 @@ if perfil == "👑 Painel do Treinador":
             st.write("---")
             st.subheader("📲 Central de Mensagens e Cobranças Ativas")
             
-            devedores = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pendente'] if not df_financeiro.empty else pd.DataFrame()
-            
-            if not devedores.empty:
-                for idx, row in devedores.iterrows():
-                    aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
-                    if not aluno_info.empty:
-                        telefone = str(aluno_info.iloc[0]['WhatsApp']).strip()
-                        nome_aluno = row['Nome_Aluno']
-                        vencimento = row['Data_Vencimento'] if 'Data_Vencimento' in row else "Mês Atual"
-                        valor = row['Valor_Cobrado']
-                        
-                        mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
-                        mensagem_codificada = urllib.parse.quote(mensagem)
-                        link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
-                        
-                        col_txt, col_btn = st.columns([4, 1])
-                        with col_txt:
-                            st.write(f"🔴 **{nome_aluno}** | Vencimento: {vencimento} | Valor: **{valor}**")
-                        with col_btn:
-                            st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+            if coluna_status_fin and not df_financeiro.empty:
+                devedores = df_financeiro[df_financeiro[coluna_status_fin] == 'Pendente']
+                
+                if not devedores.empty:
+                    for idx, row in devedores.iterrows():
+                        aluno_info = df_alunos[df_alunos['ID_Aluno'] == row['ID_Aluno']] if not df_alunos.empty else pd.DataFrame()
+                        if not aluno_info.empty:
+                            telefone = str(aluno_info.iloc[0]['WhatsApp']).strip()
+                            nome_aluno = row['Nome_Aluno']
+                            vencimento = row['Data_Vencimento'] if 'Data_Vencimento' in row else "Mês Atual"
+                            valor = row['Valor_Cobrado']
+                            
+                            mensagem = f"Olá {nome_aluno}, tudo bem? Passando para lembrar que a mensalidade da sua assessoria Team Muniz com vencimento em {vencimento} ({valor}) está aberta. Se precisar do pix só avisar! 💪"
+                            mensagem_codificada = urllib.parse.quote(mensagem)
+                            link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone}&text={mensagem_codificada}"
+                            
+                            col_txt, col_btn = st.columns([4, 1])
+                            with col_txt:
+                                st.write(f"🔴 **{nome_aluno}** | Vencimento: {vencimento} | Valor: **{valor}**")
+                            with col_btn:
+                                st.markdown(f"[📩 Cobrar no Zap]({link_whatsapp})", unsafe_allow_html=True)
+                else:
+                    st.success("Tudo em dia! Nenhuma cobrança pendente para envio.")
             else:
-                st.success("Tudo em dia! Nenhuma cobrança pendente para envio.")
+                st.warning("Aguardando mapeamento da coluna de Status de Pagamento na planilha.")
 
         # -------------------------------------------------------------
-        # MÓDULO 2: AUDITORIA DE CADASTROS (Aba Separada)
+        # MÓDULO 2: AUDITORIA DE CADASTROS
         # -------------------------------------------------------------
         elif menu == "👥 Auditoria de Cadastros":
             st.title("Central de Cadastro de Alunos")
@@ -163,20 +174,24 @@ if perfil == "👑 Painel do Treinador":
         elif menu == "💰 Cobranças & Receitas":
             st.title("Gestão de Receitas por Categoria")
             
-            # Quadros de resumo de Status (Pago vs Pendente)
-            pago_total = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pago']['Valor_Num'].sum()
-            pendente_total = df_financeiro[df_financeiro['Status_Pagamento'] == 'Pendente']['Valor_Num'].sum()
-            
-            col_p1, col_p2 = st.columns(2)
-            with col_p1:
-                st.markdown(f"<div class='kpi-box'><span style='color:#aaa;'>Total Recebido (Pago)</span><br><h3 style='color:#D4AF37;'>R$ {pago_total:,.2f}</h3></div>", unsafe_allow_html=True)
-            with col_p2:
-                st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;'>Total Em Aberto (Pendente)</span><br><h3 style='color:#FF4B4B;'>R$ {pendente_total:,.2f}</h3></div>", unsafe_allow_html=True)
-            
-            st.write("---")
-            st.subheader("Gráfico de Pizza das Finanças")
-            resumo_pizza = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
-            st.pie_chart(resumo_pizza)
+            if coluna_status_fin and not df_financeiro.empty:
+                pago_total = df_financeiro[df_financeiro[coluna_status_fin] == 'Pago']['Valor_Num'].sum()
+                pendente_total = df_financeiro[df_financeiro[coluna_status_fin] == 'Pendente']['Valor_Num'].sum()
+                
+                col_p1, col_p2 = st.columns(2)
+                with col_p1:
+                    st.markdown(f"<div class='kpi-box'><span style='color:#aaa;'>Total Recebido (Pago)</span><br><h3 style='color:#D4AF37;'>R$ {pago_total:,.2f}</h3></div>", unsafe_allow_html=True)
+                with col_p2:
+                    st.markdown(f"<div class='kpi-box-red'><span style='color:#aaa;'>Total Em Aberto (Pendente)</span><br><h3 style='color:#FF4B4B;'>R$ {pendente_total:,.2f}</h3></div>", unsafe_allow_html=True)
+                
+                st.write("---")
+                st.subheader("Gráfico de Pizza das Finanças")
+                resumo_pizza = df_financeiro.groupby(coluna_status_fin)['Valor_Num'].sum()
+                st.pie_chart(resumo_pizza)
+            else:
+                st.error("⚠️ Coluna de validação de pagamento não identificada na aba Controle_Financeiro.")
+                st.write("As colunas mapeadas atualmente são:")
+                st.code(list(df_financeiro.columns) if not df_financeiro.empty else "Aba sem dados")
 
         # -------------------------------------------------------------
         # MÓDULO 4: ORGANIZAÇÃO DA AGENDA
@@ -193,7 +208,7 @@ if perfil == "👑 Painel do Treinador":
                         st.dataframe(df_filtrado_agenda[df_filtrado_agenda['Nome_Aluno'] == aluno][['ID_Agendamento', 'Data_Aula', 'Horario_Inicio', 'Horario_Fim', 'Status_Aula']], use_container_width=True)
 
         # -------------------------------------------------------------
-        # MÓDULO 5: CENTRAL DE EXERCÍCIOS (Em Quadrinhos de Layout)
+        # MÓDULO 5: CENTRAL DE EXERCÍCIOS (Quadrinhos de Layout)
         # -------------------------------------------------------------
         elif menu == "🏋️ Central de Exercícios":
             st.title("Fichas de Treino por Aluno")
@@ -206,7 +221,6 @@ if perfil == "👑 Painel do Treinador":
             treino_filtrado = df_treinos[df_treinos['ID_Aluno'] == id_aluno_sel] if not df_treinos.empty else pd.DataFrame()
             
             if not treino_filtrado.empty and not treino_filtrado['Nome_Exercicio'].isna().all():
-                # Renderização em Quadrinhos de Conteúdo (Cards)
                 for idx, row in treino_filtrado.dropna(subset=['Nome_Exercicio']).iterrows():
                     st.markdown(f"""
                     <div class='card-exercicio'>
@@ -217,12 +231,12 @@ if perfil == "👑 Painel do Treinador":
                     </div>
                     """, unsafe_allow_html=True)
             else:
-                st.info("Nenhum exercício registrado em formato de planilha para este aluno ainda.")
+                st.info("Nenhum exercício cadastrado para este aluno ainda.")
     else:
-        st.sidebar.error("Chave inválida.")
+        st.sidebar.error("Chave inválida ou aguardando preenchimento.")
 
 # =====================================================================
-# 🏃 PORTAL DO ALUNO (INTEGRADO COM AGENDA EXTERNA E CARDS)
+# 🏃 PORTAL DO ALUNO
 # =====================================================================
 elif perfil == "🏃 Portal do Aluno":
     st.title("Portal do Aluno - Team Muniz")
@@ -231,14 +245,13 @@ elif perfil == "🏃 Portal do Aluno":
     input_tel = st.text_input("Seu WhatsApp Cadastrado (Com DDD):", placeholder="5511999999999")
     
     if input_id and input_tel:
-        validado = df_alunos[(df_alunos['ID_Aluno'].astype(str) == input_id.strip()) & (df_alunos['WhatsApp'].astype(str) == input_tel.strip())]
+        validado = df_alunos[(df_alunos['ID_Aluno'].astype(str) == input_id.strip()) & (df_alunos['WhatsApp'].astype(str) == input_tel.strip())] if not df_alunos.empty else pd.DataFrame()
         
         if not validado.empty:
             st.success(f"Logado com Sucesso, {validado.iloc[0]['Nome_Completo']}!")
             
-            # BOTÃO DE LINK DE AGENDAMENTO EXTERNO INTEGRADO NO TOPO
+            # LINK DE AGENDAMENTO INTEGRADO
             st.subheader("📅 Marcação de Aulas")
-            # Substitua o link do google abaixo pelo seu link real do Calendly / Google Calendar se preferir
             st.markdown('<a href="https://calendar.google.com" target="_blank"><button style="background-color:#D4AF37;color:black;font-weight:bold;padding:10px;border-radius:5px;width:100%;border:none;cursor:pointer;">🗓️ Confirmar Presença ou Agendar Nova Aula</button></a>', unsafe_allow_html=True)
             st.write("---")
             
@@ -249,7 +262,6 @@ elif perfil == "🏃 Portal do Aluno":
                 treino_aluno = df_treinos[df_treinos['ID_Aluno'] == input_id.strip()].dropna(subset=['Nome_Exercicio']) if not df_treinos.empty else pd.DataFrame()
                 
                 if not treino_aluno.empty:
-                    # Layout em Quadrinhos para o Aluno ver no celular de forma limpa
                     for idx, row in treino_aluno.iterrows():
                         st.markdown(f"""
                         <div class='card-exercicio'>
@@ -266,6 +278,7 @@ elif perfil == "🏃 Portal do Aluno":
                 st.subheader("Minhas Mensalidades")
                 fin_aluno = df_financeiro[df_financeiro['ID_Aluno'] == input_id.strip()] if not df_financeiro.empty else pd.DataFrame()
                 if not fin_aluno.empty:
-                    st.dataframe(fin_aluno[['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento']], use_container_width=True)
+                    exibir_cols = ['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', coluna_status_fin] if coluna_status_fin else ['Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento']
+                    st.dataframe(fin_aluno[exibir_cols], use_container_width=True)
         else:
-            st.error("Dados incorretos. Tente novamente.")
+            st.error("Dados de acesso incorretos. Verifique suas credenciais.")
