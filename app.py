@@ -35,12 +35,17 @@ GIDS = {
     "Fluxo_Caixa_Geral": "1809059737"
 }
 
-@st.cache_data(ttl=30) # Atualiza o app a cada 30 segundos se houver mudança na planilha
+@st.cache_data(ttl=10) # Atualiza o app super rápido caso você mude algo na planilha
 def carregar_dados(aba_nome):
     url = URL_BASE + GIDS[aba_nome]
     try:
         df = pd.read_csv(url)
-        # Limpeza básica de colunas vazias que o Sheets costuma exportar
+        
+        # --- BLINDAGEM DE COLUNAS (CORREÇÃO DO KEYERROR) ---
+        # Remove barras invertidas geradas pelo Markdown e limpa espaços invisíveis
+        df.columns = df.columns.astype(str).str.replace(r'\\', '', regex=True).str.replace('*', '', regex=False).str.strip()
+        
+        # Limpeza básica de linhas completamente vazias
         df = df.dropna(how='all')
         return df
     except Exception as e:
@@ -77,12 +82,12 @@ if perfil == "👑 Treinador (Fábio)":
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Alunos Ativos Cadastrados", len(df_alunos))
+            st.metric("Alunos Ativos Cadastrados", len(df_alunos) if not df_alunos.empty else 0)
         with col2:
-            faturamento_total = df_financeiro['Valor_Num'].sum()
+            faturamento_total = df_financeiro['Valor_Num'].sum() if 'Valor_Num' in df_financeiro.columns else 0
             st.metric("Faturamento Previsto (Maio)", f"R$ {faturamento_total:,.2f}")
         with col3:
-            st.metric("Horários Fixos na Agenda", len(df_agenda))
+            st.metric("Horários Fixos na Agenda", len(df_agenda) if not df_agenda.empty else 0)
             
         st.write("---")
         st.subheader("Visualização Rápida da Base de Clientes")
@@ -91,38 +96,37 @@ if perfil == "👑 Treinador (Fábio)":
     elif menu_treinador == "💰 Financeiro Detalhado":
         st.subheader("Gestão de Receitas")
         
-        # Gráfico simples de pizza/barra por status de pagamento
-        if 'Status_Pagamento' in df_financeiro.columns:
+        if not df_financeiro.empty and 'Status_Pagamento' in df_financeiro.columns:
             resumo_status = df_financeiro.groupby('Status_Pagamento')['Valor_Num'].sum()
             st.bar_chart(resumo_status)
             
         st.write("---")
         st.subheader("Lista de Cobranças")
-        st.dataframe(df_financeiro[['Nome_Aluno', 'Mes_Referencia', 'Valor_Cobrado', 'Data_Vencimento', 'Status_Pagamento']], use_container_width=True)
+        st.dataframe(df_financeiro, use_container_width=True)
 
     elif menu_treinador == "📅 Agenda de Atendimentos":
         st.subheader("Cronograma de Aulas Presenciais")
         
-        # Mapeamento de dias para filtro amigável
         dias_semana = ["Segunda-Feira", "Terça-Feira", "Quarta-Feira", "Quinta-Feira", "Sexta-Feira"]
         dia_filtro = st.selectbox("Filtrar por dia da semana:", ["Todos"] + dias_semana)
         
-        if dia_filtro != "Todos":
+        if dia_filtro != "Todos" and not df_agenda.empty and 'Data_Aula' in df_agenda.columns:
             agenda_filtrada = df_agenda[df_agenda['Data_Aula'] == dia_filtro]
         else:
             agenda_filtrada = df_agenda
             
-        st.dataframe(agenda_filtrada[['Nome_Aluno', 'Data_Aula', 'Horario_Inicio', 'Horario_Fim', 'Observacoes_Agenda']], use_container_width=True)
+        st.dataframe(agenda_filtrada, use_container_width=True)
 
     elif menu_treinador == "🏋️ Prescrição de Treinos":
         st.subheader("Central de Fichas de Exercícios")
         df_treinos = carregar_dados("Prescricao_Treinos")
         
-        aluno_treino = st.selectbox("Selecione o aluno para ver/editar a ficha:", df_alunos['Nome_Completo'].tolist())
-        treino_especifico = df_treinos[df_treinos['Nome_Aluno'] == aluno_treino]
-        
-        st.write(f"Exercícios atuais de: **{aluno_treino}**")
-        st.dataframe(treino_especifico, use_container_width=True)
+        if not df_alunos.empty and 'Nome_Completo' in df_alunos.columns:
+            aluno_treino = st.selectbox("Selecione o aluno para ver/editar a ficha:", df_alunos['Nome_Completo'].tolist())
+            if not df_treinos.empty and 'Nome_Aluno' in df_treinos.columns:
+                treino_especifico = df_treinos[df_treinos['Nome_Aluno'] == aluno_treino]
+                st.write(f"Exercícios atuais de: **{aluno_treino}**")
+                st.dataframe(treino_especifico, use_container_width=True)
 
 # --- VISÃO DO ALUNO ---
 elif perfil == "🏃 Área do Aluno":
@@ -130,7 +134,7 @@ elif perfil == "🏃 Área do Aluno":
     
     df_alunos = carregar_dados("Cadastro_Alunos")
     
-    if not df_alunos.empty:
+    if not df_alunos.empty and 'Nome_Completo' in df_alunos.columns:
         lista_nomes = df_alunos["Nome_Completo"].dropna().tolist()
         aluno_selecionado = st.selectbox("Quem está acessando?", lista_nomes)
         
@@ -141,21 +145,26 @@ elif perfil == "🏃 Área do Aluno":
         with aba_treino:
             st.subheader("Minha Ficha de Treino Ativa")
             df_treinos = carregar_dados("Prescricao_Treinos")
-            treino_do_aluno = df_treinos[df_treinos["ID_Aluno"] == id_aluno]
             
-            if not treino_do_aluno.empty and not treino_do_aluno["Nome_Exercicio"].isna().all():
-                st.dataframe(treino_do_aluno.dropna(subset=['Nome_Exercicio']), use_container_width=True)
+            if not df_treinos.empty and 'ID_Aluno' in df_treinos.columns:
+                treino_do_aluno = df_treinos[df_treinos["ID_Aluno"] == id_aluno]
+                if not treino_do_aluno.empty and not treino_do_aluno["Nome_Exercicio"].isna().all():
+                    st.dataframe(treino_do_aluno.dropna(subset=['Nome_Exercicio']), use_container_width=True)
+                else:
+                    st.info("Fábio está preparando sua nova periodização. Aguarde as instruções técnicas!")
             else:
-                st.info("Fábio está preparando sua nova periodização. Aguarde as instruções técnicas!")
+                st.info("Ficha de treinos estruturando...")
                 
         with aba_evolucao:
             st.subheader("Histórico de Avaliações Físicas")
             df_bio = carregar_dados("Historico_Bioimpedancia")
-            bio_do_aluno = df_bio[df_bio["ID_Aluno"] == id_aluno]
-            st.dataframe(bio_do_aluno, use_container_width=True)
+            if not df_bio.empty and 'ID_Aluno' in df_bio.columns:
+                bio_do_aluno = df_bio[df_bio["ID_Aluno"] == id_aluno]
+                st.dataframe(bio_do_aluno, use_container_width=True)
             
         with aba_financeiro:
             st.subheader("Minhas Faturas")
             df_fin = carregar_dados("Controle_Financeiro")
-            fin_do_aluno = df_fin[df_fin["ID_Aluno"] == id_aluno]
-            st.dataframe(fin_do_aluno[["Mes_Referencia", "Valor_Cobrado", "Data_Vencimento", "Status_Pagamento"]], use_container_width=True)
+            if not df_fin.empty and 'ID_Aluno' in df_fin.columns:
+                fin_do_aluno = df_fin[df_fin["ID_Aluno"] == id_aluno]
+                st.dataframe(fin_do_aluno, use_container_width=True)
